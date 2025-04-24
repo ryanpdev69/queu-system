@@ -721,6 +721,7 @@ function hideNotification() {
   }
 }
   
+// Find the autoCancel function in your code and replace it with this fixed version
 async function autoCancel(queueId) {
   // Use the passed queueId instead of relying on the global variable
   // This ensures we're cancelling the right queue even if the global variable changed
@@ -756,8 +757,7 @@ async function autoCancel(queueId) {
     if (error) {
       console.error('Error auto-cancelling queue:', error);
     } else {
-      showMessage('warning', 'Your queue number was automatically cancelled because you did not respond in time.')
-      ;
+      showMessage('warning', 'Your queue number was automatically cancelled because you did not respond in time.');
       
       // Update now_serving if needed
       if (queueDetails.counter) {
