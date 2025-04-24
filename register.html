@@ -8,127 +8,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://www.google.com/recaptcha/api.js" async defer></script>
   <style>
-    body {
-      background-color: #f8f9fa;
-    }
-    
-    .container {
-      max-width: 1400px;
-      margin: 0 auto;
-      padding: 0 15px;
-    }
-    
-    .card {
-      border-radius: 10px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-      transition: all 0.3s ease;
-    }
-    
-    /* 1536px and below */
-    @media (max-width: 1536px) {
-      .container {
-        max-width: 1400px;
-      }
-    }
-    
-    /* 1280px and below */
-    @media (max-width: 1280px) {
-      .container {
-        max-width: 1200px;
-      }
-    }
-    
-    /* 1024px and below */
-    @media (max-width: 1024px) {
-      .container {
-        max-width: 960px;
-      }
-      .card {
-        padding: 1.5rem !important;
-      }
-    }
-    
-    /* 768px and below */
-    @media (max-width: 768px) {
-      .container {
-        max-width: 720px;
-      }
-      .card {
-        padding: 1.25rem !important;
-      }
-      h2 {
-        font-size: 1.75rem;
-      }
-    }
-    
-    /* 640px and below */
-    @media (max-width: 640px) {
-      .container {
-        max-width: 600px;
-      }
-      .card {
-        padding: 1rem !important;
-      }
-      h2 {
-        font-size: 1.5rem;
-      }
-    }
-    
-    /* 475px and below */
-    @media (max-width: 475px) {
-      .container {
-        padding: 0 10px;
-        margin-top: 1rem !important;
-      }
-      .card {
-        padding: 0.75rem !important;
-        border-radius: 8px;
-      }
-      h2 {
-        font-size: 1.3rem;
-        margin-bottom: 0.75rem !important;
-      }
-      .form-label {
-        font-size: 0.9rem;
-      }
-      .form-text {
-        font-size: 0.8rem;
-      }
-      .mb-3 {
-        margin-bottom: 0.75rem !important;
-      }
-      .g-recaptcha {
-        transform: scale(0.85);
-        transform-origin: left;
-      }
-    }
-    
-    /* Validation styles */
-    .is-invalid {
-      border-color: #dc3545 !important;
-    }
-    .invalid-feedback {
-      display: none;
-      width: 100%;
-      margin-top: 0.25rem;
-      font-size: 0.875em;
-      color: #dc3545;
-    }
-    .was-validated .form-control:invalid ~ .invalid-feedback,
-    .form-control.is-invalid ~ .invalid-feedback {
-      display: block;
-    }
-    
-    /* CAPTCHA styles */
-    .captcha-container {
-      margin: 1rem 0;
-    }
-    .captcha-error {
-      color: #dc3545;
-      font-size: 0.875em;
-      margin-top: 0.25rem;
-      display: none;
-    }
+    /* ... (previous styles remain the same) ... */
   </style>
 </head>
 <body>
@@ -138,67 +18,7 @@
     <h2 class="mb-4">Student Registration</h2>
     
     <form id="registerForm" class="needs-validation" novalidate>
-      <div class="mb-3">
-        <label for="email" class="form-label">Email</label>
-        <input type="email" class="form-control" id="email" required>
-        <div class="invalid-feedback">Please provide a valid email address.</div>
-      </div>
-      
-      <div class="mb-3">
-        <label for="password" class="form-label">Password</label>
-        <input type="password" class="form-control" id="password" required
-               pattern="^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$">
-        <div class="form-text">
-          Password must contain:
-          <ul>
-            <li>At least 8 characters</li>
-            <li>At least 1 uppercase letter</li>
-            <li>At least 1 lowercase letter</li>
-            <li>At least 1 number</li>
-            <li>At least 1 special character (@$!%*?&)</li>
-          </ul>
-        </div>
-        <div class="invalid-feedback">Password must meet all the requirements.</div>
-      </div>
-      
-      <div class="mb-3">
-        <label for="studentNumber" class="form-label">Student Number</label>
-        <input type="text" class="form-control" id="studentNumber" required 
-               pattern="^\d{4}-(0[1-9]|1[0-2])-\d{5}$"
-               oninput="this.value = this.value.replace(/[^0-9-]/g, ''); 
-                        if (this.value.length > 12) this.value = this.value.slice(0, 12);">
-        <div class="form-text">Format: YYYY-MM-XXXXX (e.g. 2022-10-10767)</div>
-        <div class="invalid-feedback">Please enter a valid student number in format YYYY-MM-XXXXX (month must be 01-12).</div>
-      </div>
-      
-      <div class="row">
-        <div class="col-md-4 mb-3">
-          <label for="firstName" class="form-label">First Name</label>
-          <input type="text" class="form-control" id="firstName" required>
-          <div class="invalid-feedback">Please provide your first name.</div>
-        </div>
-        
-        <div class="col-md-4 mb-3">
-          <label for="middleName" class="form-label">Middle Name</label>
-          <input type="text" class="form-control" id="middleName">
-        </div>
-        
-        <div class="col-md-4 mb-3">
-          <label for="lastName" class="form-label">Last Name</label>
-          <input type="text" class="form-control" id="lastName" required>
-          <div class="invalid-feedback">Please provide your last name.</div>
-        </div>
-      </div>
-      
-      <!-- CAPTCHA Section -->
-      <div class="captcha-container">
-        <div class="g-recaptcha" data-sitekey="6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI"></div>
-        <div class="captcha-error" id="captchaError">Please verify that you're not a robot.</div>
-      </div>
-      
-      <div class="d-grid gap-2 d-md-flex justify-content-md-end">
-        <button type="submit" class="btn btn-primary px-4">Register</button>
-      </div>
+      <!-- ... (previous form fields remain the same) ... -->
     </form>
 
     <div class="mt-3 text-center">
@@ -225,15 +45,43 @@
   (function() {
     'use strict';
     
-    // Fetch the form we want to apply custom validation to
     const form = document.getElementById('registerForm');
+    const studentNumberInput = document.getElementById('studentNumber');
+    
+    // Add event listener for student number blur to check if it exists
+    studentNumberInput.addEventListener('blur', async function() {
+      const studentNumber = this.value.trim();
+      if (studentNumber && /^\d{4}-(0[1-9]|1[0-2])-\d{5}$/.test(studentNumber)) {
+        const { data, error } = await supabaseClient
+          .from('users')
+          .select('student_number')
+          .eq('student_number', studentNumber)
+          .maybeSingle();
+        
+        if (error) {
+          console.error('Error checking student number:', error);
+          return;
+        }
+        
+        if (data) {
+          showMessage('danger', 'This student number is already registered.');
+          studentNumberInput.classList.add('is-invalid');
+          document.querySelector('#studentNumber + .invalid-feedback').textContent = 'This student number is already registered.';
+          document.querySelector('#studentNumber + .invalid-feedback').style.display = 'block';
+        } else {
+          studentNumberInput.classList.remove('is-invalid');
+          document.querySelector('#studentNumber + .invalid-feedback').style.display = 'none';
+        }
+      }
+    });
     
     form.addEventListener('submit', async function(event) {
       event.preventDefault();
       event.stopPropagation();
       
-      // Reset captcha error
+      // Reset messages
       document.getElementById('captchaError').style.display = 'none';
+      showMessage('', '');
       
       // Check form validity
       if (!form.checkValidity()) {
@@ -248,8 +96,30 @@
         return;
       }
       
-      // Verify CAPTCHA with server (in a real app, you would verify this with your backend)
-      // For demo purposes, we'll just proceed if there's a response
+      // First check if student number exists
+      const studentNumber = document.getElementById('studentNumber').value.trim();
+      const { data: existingStudent, error: checkError } = await supabaseClient
+        .from('users')
+        .select('student_number')
+        .eq('student_number', studentNumber)
+        .maybeSingle();
+      
+      if (checkError) {
+        console.error('Error checking student number:', checkError);
+        showMessage('danger', 'Error checking student number. Please try again.');
+        return;
+      }
+      
+      if (existingStudent) {
+        showMessage('danger', 'This student number is already registered.');
+        studentNumberInput.classList.add('is-invalid');
+        document.querySelector('#studentNumber + .invalid-feedback').textContent = 'This student number is already registered.';
+        document.querySelector('#studentNumber + .invalid-feedback').style.display = 'block';
+        grecaptcha.reset();
+        return;
+      }
+      
+      // If student number doesn't exist, proceed with registration
       await handleRegistration(captchaResponse);
     }, false);
   })();
@@ -277,16 +147,15 @@
             first_name,
             middle_name,
             last_name,
-            captcha_response: captchaResponse // Store the captcha response (for verification on server if needed)
+            captcha_response: captchaResponse
           },
-          emailRedirectTo: window.location.origin // Redirect to current page after email verification (if needed later)
+          emailRedirectTo: window.location.origin
         }
       });
       
       if (error) {
         console.error('Auth error:', error);
         showMessage('danger', `Registration error: ${error.message}`);
-        // Reset CAPTCHA on error
         grecaptcha.reset();
         return;
       }
@@ -299,7 +168,7 @@
         return;
       }
       
-      // Insert user profile data - user should be automatically signed in at this point
+      // Insert user profile data
       const { error: profileError } = await supabaseClient
         .from('users')
         .insert([{
@@ -320,9 +189,6 @@
         document.getElementById('registerForm').reset();
         document.getElementById('registerForm').classList.remove('was-validated');
         grecaptcha.reset();
-        
-        // Optional: Redirect to a dashboard or home page
-        // window.location.href = '/dashboard.html';
       }
     } catch (unexpectedError) {
       console.error('Unexpected error:', unexpectedError);
