@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Now Serving | Modern Queue Display</title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <!-- Supabase JS -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.3"></script>
+    <style>
+        :root {
+            --primary-bg: #0a2540;
+            --secondary-bg: #001e36;
+            --accent-color: #00e5ff;
+            --text-color: #ffffff;
+            --counter-bg: #051e34;
+            --highlight-color: #ffcc00;
+            --shadow-color: rgba(0, 0, 0, 0.3);
+        }
+        
+        body {
+            background: linear-gradient(135deg, var(--primary-bg), var(--secondary-bg));
+            color: var(--text-color);
+            font-family: 'Montserrat', sans-serif;
+            min-height: 100vh;
+            transition: background 0.5s ease;
+            overflow-x: hidden;
+            margin: 0;
+            padding: 0;
+        }
+        
+        /* Fix for fullscreen scrollbar */
+        body.fullscreen-mode {
+            overflow: hidden;
+            height: 100vh;
+        }
+        
+        .header-section {
+            text-align: center;
+            padding: 2rem 0;
+            position: relative;
+        }
+        
+        .now-serving {
+            font-size: 2.5rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            background: linear-gradient(90deg, var(--text-color), var(--accent-color));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            margin-bottom: 0.5rem;
+            text-shadow: 0 2px 10px var(--shadow-color);
+            position: relative;
+        }
+        
+        .subtitle {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 1rem;
+            margin-bottom: 2rem;
+        }
+        
+        .counter-container {
+            padding: 1rem;
+        }
+        
+        .counter-card {
+            background: var(--counter-bg);
+            border-radius: 16px;
+            padding: 2rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 8px 32px var(--shadow-color);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(8px);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        .counter-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 40px var(--shadow-color);
+        }
+        
+        .counter-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            background: linear-gradient(90deg, transparent, var(--accent-color), transparent);
+            opacity: 0.7;
+        }
+        
+        .counter-title {
+            font-size: 1.25rem;
+            color: var(--accent-color);
+            text-align: center;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 1rem;
+            position: relative;
+            font-weight: 700;
+        }
+        
+        .number-display {
+            font-size: 6rem;
+            font-weight: bold;
+            text-align: center;
+            margin: 1rem 0;
+            transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            text-shadow: 0 0 10px rgba(0, 229, 255, 0.5);
+            color: var(--text-color);
+            font-family: 'Roboto', sans-serif;
+            position: relative;
+        }
+        
+        .number-change {
+            animation: numberPulse 1s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            color: var(--highlight-color);
+        }
+        
+        .connection-status {
+            position: fixed;
+            top: 15px;
+            left: 15px;
+            font-size: 0.8rem;
+            padding: 5px 10px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            z-index: 100;
+        }
+        
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+            background-color: #dc3545;
+            transition: background-color 0.3s ease;
+        }
+        
+        .status-indicator.connected {
+            background-color: #28a745;
+        }
+        
+        .fullscreen-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+            opacity: 0.8;
+            transition: all 0.3s ease;
+            background-color: rgba(0, 0, 0, 0.3);
+            color: white;
+            border: none;
+            padding: 10px;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .fullscreen-btn:hover {
+            opacity: 1;
+            background-color: var(--accent-color);
+            color: var(--primary-bg);
+            transform: scale(1.1);
+        }
+        
+        /* Fixed fullscreen mode styling */
+        .fullscreen-mode .main-content {
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .fullscreen-mode .header-section {
+            padding-top: 5vh;
+        }
+        
+        .fullscreen-mode .counter-row {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 0;
+        }
+        
+        .fullscreen-mode .counter-card {
+            transform: scale(1.1);
+            margin: 0 1.5rem;
+        }
+        
+        .fullscreen-mode .now-serving {
+            font-size: 3.5rem;
+            margin-bottom: 2rem;
+        }
+        
+        .fullscreen-mode .number-display {
+            font-size: 8rem;
+        }
+        
+        .ui-hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        
+        .wave-bg {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 200px;
+            opacity: 0.2;
+            z-index: -1;
+        }
+        
+        @keyframes numberPulse {
+            0% { transform: scale(1); text-shadow: 0 0 5px rgba(255, 204, 0, 0.5); }
+            50% { transform: scale(1.2); text-shadow: 0 0 20px rgba(255, 204, 0, 0.8); }
+            100% { transform: scale(1); text-shadow: 0 0 5px rgba(255, 204, 0, 0.5); }
+        }
+        
+        /* Media queries for responsive design */
+        @media (max-width: 992px) {
+            .counter-row {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .counter-card {
+                width: 100%;
+                max-width: 400px;
+            }
+            
+            .number-display {
+                font-size: 5rem;
+            }
+            
+            .fullscreen-mode .number-display {
+                font-size: 6rem;
+            }
+            
+            .now-serving {
+                font-size: 2rem;
+            }
+            
+            /* Adjust fullscreen mode for smaller screens */
+            .fullscreen-mode .counter-row {
+                flex-direction: column;
+                justify-content: center;
+                margin-top: -5vh;
+            }
+            
+            .fullscreen-mode .counter-card {
+                margin: 1rem 0;
+            }
+        }
+        
+        @media (max-width: 576px) {
+            .counter-title {
+                font-size: 1rem;
+            }
+            
+            .number-display {
+                font-size: 4rem;
+            }
+            
+            .fullscreen-mode .number-display {
+                font-size: 5rem;
+            }
+            
+            .now-serving {
+                font-size: 1.8rem;
+            }
+            
+            .counter-card {
+                padding: 1.5rem;
+            }
+            
+            /* Further adjustments for very small screens */
+            .fullscreen-mode .counter-card {
+                transform: scale(1);
+                padding: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="main-content" id="mainContainer">
+        <div class="connection-status" id="connectionStatus">
+            <div class="status-indicator" id="statusIndicator"></div>
+            <span id="statusText">Connecting...</span>
+        </div>
+        
+        <div class="header-section">
+            <div class="now-serving">NOW SERVING</div>
+            <div class="subtitle">Please wait for your number to be called</div>
+        </div>
+        
+        <div class="container">
+            <div class="row counter-row" id="counterRow">
+                <div class="col-md-4 counter-container">
+                    <div class="counter-card">
+                        <div class="counter-title">COUNTER 1</div>
+                        <div class="number-display" id="counter1">0</div>
+                    </div>
+                </div>
+                <div class="col-md-4 counter-container">
+                    <div class="counter-card">
+                        <div class="counter-title">COUNTER 2</div>
+                        <div class="number-display" id="counter2">0</div>
+                    </div>
+                </div>
+                <div class="col-md-4 counter-container">
+                    <div class="counter-card">
+                        <div class="counter-title">COUNTER 3</div>
+                        <div class="number-display" id="counter3">0</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <button class="btn fullscreen-btn" id="fullscreenBtn">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
+                <path d="M1.5 1a.5.5 0 0 0-.5.5v4a.5.5 0 0 1-1 0v-4A1.5 1.5 0 0 1 1.5 0h4a.5.5 0 0 1 0 1h-4zM10 .5a.5.5 0 0 1 .5-.5h4A1.5 1.5 0 0 1 16 1.5v4a.5.5 0 0 1-1 0v-4a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 1-.5-.5zM.5 10a.5.5 0 0 1 .5.5v4a.5.5 0 0 0 .5.5h4a.5.5 0 0 1 0 1h-4A1.5 1.5 0 0 1 0 14.5v-4a.5.5 0 0 1 .5-.5zm15 0a.5.5 0 0 1 .5.5v4a1.5 1.5 0 0 1-1.5 1.5h-4a.5.5 0 0 1 0-1h4a.5.5 0 0 0 .5-.5v-4a.5.5 0 0 1 .5-.5z"/>
+            </svg>
+        </button>
+        
+        <svg class="wave-bg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 320">
+            <path fill="#00e5ff" fill-opacity="1" d="M0,96L48,112C96,128,192,160,288,160C384,160,480,128,576,117.3C672,107,768,117,864,138.7C960,160,1056,192,1152,197.3C1248,203,1344,181,1392,170.7L1440,160L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"></path>
+        </svg>
+    </div>
+
+    <!-- Audio element for notification sound -->
+    <audio id="numberChangeSound" preload="auto">
+        <!-- Using a more reliable notification sound -->
+        <source src="data:audio/mpeg;base64,SUQzBAAAAAABEVRYWFgAAAAtAAADY29tbWVudABCaWdTb3VuZEJhbmsuY29tIC8gTGFTb25vdGhlcXVlLm9yZwBURU5DAAAAHQAAA1N3aXRjaCBQbHVzIMKpIE5DSCBTb2Z0d2FyZQBUSVQyAAAABgAAAzIyMzUAVFNTRQAAAA8AAANMYXZmNTcuODMuMTAwAAAAAAAAAAAAAAD/80DEAAAAA0gAAAAATEFNRTMuMTAwVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQsRbAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQMSkAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV" type="audio/mpeg">
+    </audio>
+
+    <!-- Bootstrap and other scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Initialize variables
+        let isFullscreen = false;
+        let idleTimer;
+        let lastMouseMove = 0;
+        let currentValues = {
+            counter_1: 0,
+            counter_2: 0,
+            counter_3: 0
+        };
+        
+        // DOM elements
+        const counter1El = document.getElementById('counter1');
+        const counter2El = document.getElementById('counter2');
+        const counter3El = document.getElementById('counter3');
+        const fullscreenBtn = document.getElementById('fullscreenBtn');
+        const mainContainer = document.getElementById('mainContainer');
+        const connectionStatus = document.getElementById('statusText');
+        const statusIndicator = document.getElementById('statusIndicator');
+        const numberChangeSound = document.getElementById('numberChangeSound');
+        const counterRow = document.getElementById('counterRow');
+        
+        // Initialize Supabase client - Fixed the variable name conflict
+        document.addEventListener('DOMContentLoaded', () => {
+            initializeApp();
+        });
+        
+        // Initialize the application
+        function initializeApp() {
+            // Initialize Supabase client properly
+            const SUPABASE_URL = 'https://mgxyeoikrddeugnpcrtu.supabase.co';
+            const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1neHllb2lrcmRkZXVnbnBjcnR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDUzOTg0MzksImV4cCI6MjA2MDk3NDQzOX0.Lz8tp7_xj7BQaCREeJAc_KifxcjbJN1cdixRiLEs_AU';
+            
+            // Create the Supabase client properly
+            const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+            
+            // Set up event listeners
+            setupFullscreenEvents();
+            subscribeToNumberChanges(supabaseClient);
+        }
+        
+        // Handle fullscreen functionality
+        function setupFullscreenEvents() {
+            // Fullscreen button click
+            fullscreenBtn.addEventListener('click', toggleFullscreen);
+            
+            // Mouse movement detection
+            document.addEventListener('mousemove', () => {
+                lastMouseMove = Date.now();
+                
+                if (isFullscreen) {
+                    fullscreenBtn.classList.remove('ui-hidden');
+                    
+                    clearTimeout(idleTimer);
+                    idleTimer = setTimeout(() => {
+                        if (isFullscreen) {
+                            fullscreenBtn.classList.add('ui-hidden');
+                        }
+                    }, 2000);
+                }
+            });
+            
+            // Escape key detection
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && isFullscreen) {
+                    exitFullscreen();
+                }
+            });
+            
+            // Listen for fullscreen change events
+            document.addEventListener('fullscreenchange', handleFullscreenChange);
+        }
+        
+        // Toggle fullscreen state
+        function toggleFullscreen() {
+            if (!isFullscreen) {
+                enterFullscreen();
+            } else {
+                exitFullscreen();
+            }
+        }
+        
+        // Enter fullscreen mode
+        function enterFullscreen() {
+            if (document.documentElement.requestFullscreen) {
+                document.documentElement.requestFullscreen();
+            } else if (document.documentElement.mozRequestFullScreen) {
+                document.documentElement.mozRequestFullScreen();
+            } else if (document.documentElement.webkitRequestFullscreen) {
+                document.documentElement.webkitRequestFullscreen();
+            } else if (document.documentElement.msRequestFullscreen) {
+                document.documentElement.msRequestFullscreen();
+            }
+            
+            document.body.classList.add('fullscreen-mode');
+            mainContainer.classList.add('fullscreen-mode');
+            isFullscreen = true;
+            
+            // Hide UI after short delay
+            setTimeout(() => {
+                if (isFullscreen && (Date.now() - lastMouseMove > 1000)) {
+                    fullscreenBtn.classList.add('ui-hidden');
+                }
+            }, 2000);
+        }
+        
+        // Exit fullscreen mode
+        function exitFullscreen() {
+            if (document.exitFullscreen) {
+                document.exitFullscreen();
+            } else if (document.mozCancelFullScreen) {
+                document.mozCancelFullScreen();
+            } else if (document.webkitExitFullscreen) {
+                document.webkitExitFullscreen();
+            } else if (document.msExitFullscreen) {
+                document.msExitFullscreen();
+            }
+            
+            document.body.classList.remove('fullscreen-mode');
+            mainContainer.classList.remove('fullscreen-mode');
+            fullscreenBtn.classList.remove('ui-hidden');
+            isFullscreen = false;
+        }
+        
+        // Handle fullscreen change
+        function handleFullscreenChange() {
+            if (!document.fullscreenElement && 
+                !document.webkitIsFullScreen && 
+                !document.mozFullScreen && 
+                !document.msFullscreenElement) {
+                document.body.classList.remove('fullscreen-mode');
+                mainContainer.classList.remove('fullscreen-mode');
+                fullscreenBtn.classList.remove('ui-hidden');
+                isFullscreen = false;
+            }
+        }
+        
+        // Subscribe to realtime updates
+        async function subscribeToNumberChanges(supabaseClient) {
+            updateConnectionStatus('connecting');
+            
+            try {
+                // Get initial values
+                const { data, error } = await supabaseClient
+                    .from('now_serving')
+                    .select('id, counter_1, counter_2, counter_3')
+                    .eq('id', 1)
+                    .single();
+                
+                if (error) throw error;
+                
+                // Update UI with initial values
+                if (data) {
+                    updateCounterDisplay('counter_1', data.counter_1);
+                    updateCounterDisplay('counter_2', data.counter_2);
+                    updateCounterDisplay('counter_3', data.counter_3);
+                    
+                    updateConnectionStatus('connected');
+                }
+                
+                // Subscribe to changes
+                const subscription = supabaseClient
+                    .channel('now-serving-changes')
+                    .on('postgres_changes', {
+                        event: 'UPDATE',
+                        schema: 'public',
+                        table: 'now_serving',
+                        filter: 'id=eq.1'
+                    }, payload => {
+                        const newData = payload.new;
+                        
+                        // Check which counter changed and update accordingly
+                        if (newData.counter_1 !== currentValues.counter_1) {
+                            updateCounterDisplay('counter_1', newData.counter_1);
+                        }
+                        
+                        if (newData.counter_2 !== currentValues.counter_2) {
+                            updateCounterDisplay('counter_2', newData.counter_2);
+                        }
+                        
+                        if (newData.counter_3 !== currentValues.counter_3) {
+                            updateCounterDisplay('counter_3', newData.counter_3);
+                        }
+                    })
+                    .subscribe((status) => {
+                        if (status === 'SUBSCRIBED') {
+                            updateConnectionStatus('realtime');
+                        }
+                    });
+                
+            } catch (error) {
+                console.error('Error setting up realtime subscription:', error);
+                updateConnectionStatus('error');
+            }
+        }
+        
+        // Update connection status indicator
+        function updateConnectionStatus(status) {
+            switch(status) {
+                case 'connecting':
+                    connectionStatus.textContent = 'Connecting...';
+                    statusIndicator.classList.remove('connected');
+                    break;
+                case 'connected':
+                    connectionStatus.textContent = 'Connected';
+                    statusIndicator.classList.add('connected');
+                    break;
+                case 'realtime':
+                    connectionStatus.textContent = 'Realtime Connected';
+                    statusIndicator.classList.add('connected');
+                    break;
+                case 'error':
+                    connectionStatus.textContent = 'Connection Error';
+                    statusIndicator.classList.remove('connected');
+                    break;
+            }
+        }
+        
+        // Update the counter display with animation and sound
+        function updateCounterDisplay(counterKey, newValue) {
+            let elementId;
+            switch(counterKey) {
+                case 'counter_1':
+                    elementId = 'counter1';
+                    break;
+                case 'counter_2':
+                    elementId = 'counter2';
+                    break;
+                case 'counter_3':
+                    elementId = 'counter3';
+                    break;
+                default:
+                    return;
+            }
+            
+            const element = document.getElementById(elementId);
+            
+            if (newValue !== currentValues[counterKey]) {
+                currentValues[counterKey] = newValue;
+                
+                // Add animation class
+                element.classList.add('number-change');
+                
+                // Play sound
+                try {
+                    numberChangeSound.currentTime = 0;
+                    numberChangeSound.play().catch(e => console.log('Audio play failed:', e));
+                } catch (e) {
+                    console.log('Audio element error:', e);
+                }
+                
+                // Update display
+                element.textContent = newValue;
+                
+                // Remove animation class after animation completes
+                setTimeout(() => {
+                    element.classList.remove('number-change');
+                }, 1000);
+            }
+        }
+    </script>
+</body>
+</html>

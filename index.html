@@ -1,0 +1,1006 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Queue Status</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    body {
+      background-color: #f8f9fa;
+    }
+    
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 0 15px;
+    }
+    
+    .card {
+      border-radius: 10px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      transition: all 0.3s ease;
+    }
+    
+    .header-container {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+    }
+    
+    .now-serving {
+      background-color: #f0f7ff;
+      border-left: 4px solid #0d6efd;
+    }
+    
+    .queue-number {
+      font-size: 2.5rem;
+      font-weight: bold;
+      color: #0d6efd;
+    }
+    
+    .counter-box {
+      position: relative;
+      transition: all 0.3s ease;
+    }
+    
+    .counter-box.updated {
+      animation: flash-update 1.5s;
+    }
+    
+    @keyframes flash-update {
+      0%, 100% {
+        background-color: #fff;
+      }
+      50% {
+        background-color: rgba(13, 110, 253, 0.2);
+      }
+    }
+    
+    .status-waiting {
+      background-color: #fff8e1;
+      border-left: 4px solid #ffc107;
+    }
+    
+    .status-called {
+      background-color: #e8f5e9;
+      border-left: 4px solid #28a745;
+      animation: pulse-green 2s infinite;
+    }
+    
+    .status-completed, .status-cancelled {
+      background-color: #f5f5f5;
+      border-left: 4px solid #6c757d;
+    }
+    
+    @keyframes pulse-green {
+      0% {
+        box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.7);
+      }
+      70% {
+        box-shadow: 0 0 0 10px rgba(40, 167, 69, 0);
+      }
+      100% {
+        box-shadow: 0 0 0 0 rgba(40, 167, 69, 0);
+      }
+    }
+    
+    .timer-progress {
+      height: 10px;
+      transition: width 1s linear;
+    }
+    
+    .modal-notification {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 1050;
+      max-width: 500px;
+      width: 90%;
+      display: none;
+    }
+    
+    .modal-backdrop {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+      z-index: 1040;
+      display: none;
+    }
+    
+    .refresh-indicator {
+      display: inline-block;
+      font-size: 0.875rem;
+      color: #6c757d;
+      margin-left: 0.5rem;
+    }
+    
+    .refresh-spinner {
+      width: 1rem;
+      height: 1rem;
+      margin-right: 0.25rem;
+      vertical-align: middle;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+    
+    .refresh-spinner.active {
+      opacity: 1;
+    }
+    
+    @media (max-width: 475px) {
+      .container {
+        padding: 0 10px;
+        margin-top: 1rem !important;
+      }
+      .card {
+        padding: 0.75rem !important;
+        border-radius: 8px;
+      }
+    }
+  </style>
+</head>
+<body class="bg-light">
+ <div class="container mt-5">
+  <div class="card p-4 shadow">
+    <div class="header-container">
+      <h2>My Queue Status</h2>
+      <button id="logoutBtn" class="btn btn-outline-danger">Log Out</button>
+    </div>
+    
+    <div id="userInfo" class="mb-4">
+      <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading...</span>
+      </div>
+      <span class="ms-2">Loading user information...</span>
+    </div>
+    
+    <!-- Now Serving Section -->
+    <div class="card mb-4 now-serving">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h4 class="mb-0">Now Serving</h4>
+          <div class="refresh-indicator">
+            <span class="spinner-border refresh-spinner" id="refreshSpinner" role="status">
+              <span class="visually-hidden">Loading...</span>
+            </span>
+            <span id="refreshStatus">Real-time updates active</span>
+          </div>
+        </div>
+        <div class="row text-center">
+          <div class="col-md-4 mb-3 mb-md-0">
+            <div id="counterBox1" class="counter-box p-3 bg-white rounded shadow-sm">
+              <h3 id="counter1" class="mb-1">-</h3>
+              <p class="mb-0 text-muted">Counter 1</p>
+            </div>
+          </div>
+          <div class="col-md-4 mb-3 mb-md-0">
+            <div id="counterBox2" class="counter-box p-3 bg-white rounded shadow-sm">
+              <h3 id="counter2" class="mb-1">-</h3>
+              <p class="mb-0 text-muted">Counter 2</p>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div id="counterBox3" class="counter-box p-3 bg-white rounded shadow-sm">
+              <h3 id="counter3" class="mb-1">-</h3>
+              <p class="mb-0 text-muted">Counter 3</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- My Queue Section -->
+    <div id="myQueueStatus" class="mb-4 d-none">
+      <h4 class="mb-3">My Queue</h4>
+      <div id="queueCards"></div>
+    </div>
+    
+    <form id="queueForm" style="display: none;">
+      <div class="mb-3">
+        <label for="purpose" class="form-label">Select Purpose</label>
+        <select class="form-select" id="purpose" required>
+          <option value="">Choose purpose</option>
+          <option value="Enrollment">Enrollment</option>
+          <option value="Document Request">Document Request</option>
+          <option value="Consultation">Consultation</option>
+          <option value="Grades Inquiry">Grades Inquiry</option>
+        </select>
+      </div>
+      
+      <button type="submit" class="btn btn-primary">Get My Number</button>
+    </form>
+    
+    <div id="result" class="mt-4"></div>
+  </div>
+</div>
+
+<!-- Notification Modal -->
+<div class="modal-backdrop" id="modalBackdrop"></div>
+<div class="modal-notification card shadow" id="notificationModal">
+  <div class="card-header bg-primary text-white">
+    <h5 class="mb-0">Your Number Has Been Called!</h5>
+  </div>
+  <div class="card-body">
+    <div class="text-center mb-3">
+      <div class="display-4 fw-bold mb-2" id="calledNumber"></div>
+      <p>Please proceed to <span class="fw-bold" id="counterNumber"></span></p>
+    </div>
+    <div class="mb-3">
+      <p class="mb-2">Time remaining to accept:</p>
+      <div class="progress">
+        <div id="timerProgress" class="progress-bar timer-progress" role="progressbar" style="width: 100%"></div>
+      </div>
+      <p class="text-end mt-1"><span id="timerSeconds">300</span> seconds</p>
+    </div>
+    <div class="d-grid gap-2">
+      <button id="acceptBtn" class="btn btn-success">Accept & Proceed</button>
+      <button id="cancelBtn" class="btn btn-outline-danger">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Initialize Supabase client
+  const SUPABASE_URL = 'https://mgxyeoikrddeugnpcrtu.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1neHllb2lrcmRkZXVnbnBjcnR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDUzOTg0MzksImV4cCI6MjA2MDk3NDQzOX0.Lz8tp7_xj7BQaCREeJAc_KifxcjbJN1cdixRiLEs_AU';
+  
+  const { createClient } = supabase;
+  const supabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
+  
+  let userId = null;
+  let userProfile = null;
+  let realtime = null;
+  let timerInterval = null;
+  let secondsLeft = 300; // 5 minutes
+  let currentlyCalledQueueId = null;
+  let refreshInterval = null;
+  let lastNowServing = null;
+  
+  // Use localStorage to track acknowledged notifications
+  // This prevents showing the same notification multiple times if page refreshes
+  const acknowledgedCalls = JSON.parse(localStorage.getItem('acknowledgedCalls') || '[]');
+  
+  function showMessage(type, text) {
+    document.getElementById('result').innerHTML = `<div class="alert alert-${type}">${text}</div>`;
+  }
+  
+  function formatDate(dateString) {
+    const date = new Date(dateString);
+    return date.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+  }
+  
+  async function loadUser() {
+    try {
+      console.log("Checking session...");
+      // Check if user is authenticated
+      const { data: { session }, error } = await supabaseClient.auth.getSession();
+      
+      if (error) {
+        console.error("Session error:", error);
+        document.getElementById('userInfo').innerHTML = `
+          <div class="alert alert-danger">Authentication error: ${error.message}</div>
+        `;
+        return;
+      }
+      
+      if (!session) {
+        console.log("No session found, redirecting to login");
+        document.getElementById('userInfo').innerHTML = `
+          <div class="alert alert-warning">You are not logged in. Redirecting to login page...</div>
+        `;
+        setTimeout(() => {
+          window.location.href = '/login.html';
+        }, 2000);
+        return;
+      }
+      
+      console.log("Session found, user ID:", session.user.id);
+      userId = session.user.id;
+      
+      // Fetch user profile data
+      console.log("Fetching user profile...");
+      const { data: profile, error: profileError } = await supabaseClient
+        .from('users')
+        .select('email, student_number, first_name, middle_name, last_name')
+        .eq('id', userId)
+        .single();
+      
+      if (profileError) {
+        console.error("Profile fetch error:", profileError);
+        document.getElementById('userInfo').innerHTML = `
+          <div class="alert alert-danger">Error loading user data: ${profileError.message}</div>
+        `;
+        return;
+      }
+      
+      if (profile) {
+        console.log("Profile loaded:", profile);
+        userProfile = profile;
+        // Display user info without exposing the UUID
+        document.getElementById('userInfo').innerHTML = `
+          <div class="card bg-light p-3">
+            <h5 class="card-title">Student Information</h5>
+            <p class="mb-1"><strong>Student Number:</strong> ${profile.student_number}</p>
+            <p class="mb-1"><strong>Name:</strong> ${profile.first_name} ${profile.middle_name ? profile.middle_name : ''} ${profile.last_name}</p>
+            <p class="mb-0"><strong>Email:</strong> ${profile.email}</p>
+          </div>
+        `;
+        
+        // Show the form once user is loaded
+        document.getElementById('queueForm').style.display = 'block';
+        
+        // Load now serving data
+        loadNowServing();
+        
+        // Load user's queue status
+        loadUserQueueStatus();
+        
+        // Set up realtime subscription
+        setupRealtimeSubscription();
+        
+        // Set up fallback refresh interval for entire page
+        setupRefreshInterval();
+      } else {
+        console.log("No profile found");
+        document.getElementById('userInfo').innerHTML = `
+          <div class="alert alert-warning">User profile not found. Please complete your registration.</div>
+        `;
+      }
+    } catch (err) {
+      console.error("Unexpected error:", err);
+      document.getElementById('userInfo').innerHTML = `
+        <div class="alert alert-danger">Unexpected error: ${err.message}</div>
+      `;
+    }
+  }
+  
+  // Set up realtime subscriptions
+  function setupRealtimeSubscription() {
+    // Unsubscribe from any existing subscription
+    if (realtime) {
+      supabaseClient.removeChannel(realtime);
+    }
+
+    // Create a single channel for all database events
+    realtime = supabaseClient
+      .channel('page-updates')
+      // Subscribe to queue changes for this user
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'queues', filter: `user_id=eq.${userId}` }, 
+        payload => {
+          console.log('My queue change detected:', payload);
+          loadUserQueueStatus();
+          
+          // If status changed to "called", show notification
+          if (payload.new && payload.new.status === 'called') {
+            // Check if we already acknowledged this call
+            if (!acknowledgedCalls.includes(payload.new.id)) {
+              showCalledNotification(payload.new.queue_number, payload.new.counter, payload.new.id);
+            }
+          }
+        })
+      // Subscribe to all queue changes (for full page real-time updates)
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'queues' },
+        payload => {
+          console.log('General queue change detected:', payload);
+          // This ensures we see updates to all queues, not just our own
+          loadNowServing(); // Refresh now serving whenever any queue changes
+        })
+      // Subscribe to now_serving table changes
+      .on('postgres_changes',
+  { event: '*', schema: 'public', table: 'now_serving' },
+  payload => {
+    console.log('Now serving change detected:', payload);
+    updateNowServingDisplay(payload.new);
+  })
+      .subscribe();
+      
+    console.log("Realtime subscription set up for entire page");
+    
+    // Add a connection status indicator
+    supabaseClient.channel('system').on('system', { event: 'disconnect' }, () => {
+      document.getElementById('refreshStatus').textContent = 'Connection lost. Reconnecting...';
+      document.getElementById('refreshSpinner').classList.add('active');
+    }).on('system', { event: 'reconnect' }, () => {
+      document.getElementById('refreshStatus').textContent = 'Real-time updates active';
+      setTimeout(() => {
+        document.getElementById('refreshSpinner').classList.remove('active');
+      }, 500);
+      // Refresh data after reconnection
+      loadNowServing();
+      loadUserQueueStatus();
+    }).subscribe();
+  }
+  
+  // Set up fallback refresh interval
+  function setupRefreshInterval() {
+    // Clear any existing interval
+    if (refreshInterval) {
+      clearInterval(refreshInterval);
+    }
+    
+    // Set up a 10-second refresh interval for the entire page data
+    refreshInterval = setInterval(async () => {
+      console.log("Refreshing all page data...");
+      document.getElementById('refreshSpinner').classList.add('active');
+      await Promise.all([
+        loadNowServing(),
+        loadUserQueueStatus()
+      ]);
+      setTimeout(() => {
+        document.getElementById('refreshSpinner').classList.remove('active');
+      }, 500);
+    }, 10000); // 10 seconds
+    
+    // Update the refresh status text
+    document.getElementById('refreshStatus').textContent = 'Auto-refresh every 10s';
+  }
+  
+  async function loadNowServing() {
+    try {
+      const { data, error } = await supabaseClient
+        .from('now_serving')
+        .select('*')
+        .eq('id', 1)
+        .single();
+        
+      if (error) {
+        console.error('Error fetching now serving:', error);
+        return;
+      }
+      
+      updateNowServingDisplay(data);
+    } catch (error) {
+      console.error('Error loading now serving data:', error);
+    }
+  }
+  
+  function updateNowServingDisplay(data) {
+  if (!data) return;
+  
+  // Store the current values for comparison
+  const current = {
+    counter_1: document.getElementById('counter1').textContent,
+    counter_2: document.getElementById('counter2').textContent,
+    counter_3: document.getElementById('counter3').textContent
+  };
+  
+  // Update the display with new values
+  // Use dash (-) if the counter value is 0 or not present
+  document.getElementById('counter1').textContent = data.counter_1 > 0 ? data.counter_1 : '-';
+  document.getElementById('counter2').textContent = data.counter_2 > 0 ? data.counter_2 : '-'; 
+  document.getElementById('counter3').textContent = data.counter_3 > 0 ? data.counter_3 : '-';
+  
+  // Add visual indicator for changed values
+  if (current.counter_1 !== document.getElementById('counter1').textContent) {
+    flashUpdate('counterBox1');
+  }
+  if (current.counter_2 !== document.getElementById('counter2').textContent) {
+    flashUpdate('counterBox2');
+  }
+  if (current.counter_3 !== document.getElementById('counter3').textContent) {
+    flashUpdate('counterBox3');
+  }
+  
+  // Save the new data for future comparisons
+  lastNowServing = data;
+}
+
+
+  function flashUpdate(elementId) {
+    const element = document.getElementById(elementId);
+    element.classList.remove('updated');
+    
+    // Force a reflow to ensure the animation plays again
+    void element.offsetWidth;
+    
+    element.classList.add('updated');
+  }
+  
+  async function loadUserQueueStatus() {
+    try {
+      const { data, error } = await supabaseClient
+        .from('queues')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(10);
+        
+      if (error) {
+        console.error('Error fetching user queues:', error);
+        return;
+      }
+      
+      const queueCardsEl = document.getElementById('queueCards');
+      
+      if (data.length === 0) {
+        document.getElementById('myQueueStatus').classList.add('d-none');
+        return;
+      }
+      
+      document.getElementById('myQueueStatus').classList.remove('d-none');
+      queueCardsEl.innerHTML = '';
+      
+      data.forEach(queue => {
+        let statusBadge;
+        let statusClass;
+        
+        switch(queue.status) {
+          case 'waiting':
+            statusBadge = '<span class="badge bg-warning">Waiting</span>';
+            statusClass = 'status-waiting';
+            break;
+          case 'called':
+            statusBadge = '<span class="badge bg-success">Called</span>';
+            statusClass = 'status-called';
+            break;
+          case 'completed':
+            statusBadge = '<span class="badge bg-secondary">Completed</span>';
+            statusClass = 'status-completed';
+            break;
+          case 'cancelled':
+            statusBadge = '<span class="badge bg-danger">Cancelled</span>';
+            statusClass = 'status-cancelled';
+            break;
+        }
+        
+        const card = document.createElement('div');
+        card.className = `card mb-3 ${statusClass}`;
+        card.innerHTML = `
+          <div class="card-body">
+            <div class="row align-items-center">
+              <div class="col-md-2 text-center mb-3 mb-md-0">
+                <div class="queue-number">${queue.queue_number}</div>
+              </div>
+              <div class="col-md-6 mb-3 mb-md-0">
+                <p class="mb-1"><strong>Purpose:</strong> ${queue.purpose}</p>
+                <p class="mb-1"><strong>Status:</strong> ${statusBadge}</p>
+                <p class="mb-0"><strong>Created:</strong> ${formatDate(queue.created_at)}</p>
+              </div>
+              <div class="col-md-4 text-md-end">
+                ${queue.counter ? `<p class="mb-1"><strong>Counter:</strong> ${queue.counter}</p>` : ''}
+                <div class="mt-2">
+                  ${queue.status === 'waiting' ? 
+                    `<button class="btn btn-outline-danger btn-sm" onclick="cancelQueue('${queue.id}')">Cancel</button>` : ''}
+                  ${queue.status === 'called' && !acknowledgedCalls.includes(queue.id) ? 
+                    `<button class="btn btn-success btn-sm" onclick="showCalledNotification(${queue.queue_number}, ${queue.counter}, '${queue.id}')">View Call</button>` : ''}
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+        
+        queueCardsEl.appendChild(card);
+      });
+      
+      // Check for any unacknowledged "called" queue items on page load
+      const calledQueue = data.find(q => q.status === 'called' && !acknowledgedCalls.includes(q.id));
+      if (calledQueue) {
+        showCalledNotification(calledQueue.queue_number, calledQueue.counter, calledQueue.id);
+      }
+    } catch (error) {
+      console.error('Error loading user queue status:', error);
+    }
+  }
+  
+  async function cancelQueue(queueId) {
+  if (!confirm('Are you sure you want to cancel this queue number?')) return;
+
+  try {
+    // 1. Get queue details (to check counter and queue number)
+    const { data: queue, error: fetchError } = await supabaseClient
+      .from('queues')
+      .select('counter, queue_number')
+      .eq('id', queueId)
+      .single();
+
+    if (fetchError) throw fetchError;
+
+    // 2. Update queue status
+    const { error: updateError } = await supabaseClient
+      .from('queues')
+      .update({ status: 'cancelled' })
+      .eq('id', queueId);
+
+    if (updateError) throw updateError;
+
+    // 3. Clear now_serving if this queue was being served
+    if (queue.counter) {
+      const counterField = `counter_${queue.counter}`;
+      
+      // Get the current now_serving data first
+      const { data: nowServing, error: servingError } = await supabaseClient
+        .from('now_serving')
+        .select('*')
+        .eq('id', 1)
+        .single();
+
+      if (servingError) {
+        console.error('Error checking now_serving:', servingError);
+      } else if (nowServing && nowServing[counterField] === queue.queue_number) {
+        // Only clear the counter if it's showing this queue's number
+        const updateData = {};
+        updateData[counterField] = 0;  // Set to 0 (not null) to match DB structure
+        
+        const { error: updateServingError } = await supabaseClient
+          .from('now_serving')
+          .update(updateData)
+          .eq('id', 1);
+          
+        if (updateServingError) {
+          console.error('Error updating now serving:', updateServingError);
+        }
+      }
+    }
+
+    showMessage('success', 'Queue cancelled successfully');
+    loadUserQueueStatus();
+    loadNowServing(); // Refresh counters
+  } catch (error) {
+    showMessage('danger', `Cancellation failed: ${error.message}`);
+  }
+}
+
+
+function showCalledNotification(queueNumber, counter, queueId) {
+  // Update notification content
+
+  if (currentlyCalledQueueId === queueId && timerInterval) {
+    // Already showing this queue's notification, don't restart timer
+    return;
+  }
+
+  document.getElementById('calledNumber').textContent = queueNumber;
+  document.getElementById('counterNumber').textContent = `Counter ${counter}`;
+  
+  // Show notification modal
+  document.getElementById('modalBackdrop').style.display = 'block';
+  document.getElementById('notificationModal').style.display = 'block';
+  
+  // Store current queue ID
+  currentlyCalledQueueId = queueId;
+  
+  // Reset and start timer
+  secondsLeft = 300; // 5 minutes
+  document.getElementById('timerSeconds').textContent = secondsLeft;
+  document.getElementById('timerProgress').style.width = '100%';
+  document.getElementById('timerProgress').className = 'progress-bar timer-progress';
+  
+  // Clear any existing timer
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+  
+  // Start countdown
+  timerInterval = setInterval(() => {
+    secondsLeft--;
+    document.getElementById('timerSeconds').textContent = secondsLeft;
+    const percentage = (secondsLeft / 300) * 100;
+    document.getElementById('timerProgress').style.width = `${percentage}%`;
+    
+    // Change progress bar color as time decreases
+    if (secondsLeft <= 60) {
+      document.getElementById('timerProgress').className = 'progress-bar timer-progress bg-danger';
+    } else if (secondsLeft <= 120) {
+      document.getElementById('timerProgress').className = 'progress-bar timer-progress bg-warning';
+    }
+    
+    if (secondsLeft <= 0) {
+  clearInterval(timerInterval);
+  timerInterval = null;
+  autoCancel(currentlyCalledQueueId); // Let autoCancel handle hiding the modal
+}
+
+  }, 1000);
+}
+
+function hideNotification() {
+  document.getElementById('modalBackdrop').style.display = 'none';
+  document.getElementById('notificationModal').style.display = 'none';
+  
+  // Don't clear the timer here to ensure autoCancel still works
+  // but make sure we stop the countdown to prevent multiple cancellations
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+}
+  
+async function autoCancel(queueId) {
+  // Use the passed queueId instead of relying on the global variable
+  // This ensures we're cancelling the right queue even if the global variable changed
+  if (!queueId) return;
+  
+  try {
+    console.log(`Auto-cancelling queue ${queueId} after timeout`);
+    
+    // Get queue details first
+    const { data: queueDetails, error: fetchError } = await supabaseClient
+      .from('queues')
+      .select('counter, queue_number, status')
+      .eq('id', queueId)
+      .single();
+      
+    if (fetchError) {
+      console.error('Error fetching queue details:', fetchError);
+      return;
+    }
+    
+    // Only proceed if the queue is still in 'called' status
+    if (queueDetails.status !== 'called') {
+      console.log('Queue is no longer in called status, skipping auto-cancel');
+      return;
+    }
+    
+    // Update queue status
+    const { error } = await supabaseClient
+      .from('queues')
+      .update({ status: 'cancelled' })
+      .eq('id', queueId);
+      
+    if (error) {
+      console.error('Error auto-cancelling queue:', error);
+    } else {
+      showMessage('warning', 'Your queue number was automatically cancelled because you did not respond in time.')
+      ;
+      
+      // Update now_serving if needed
+      if (queueDetails.counter) {
+        const counterField = `counter_${queueDetails.counter}`;
+        
+        // Get the current now_serving data first
+        const { data: nowServing, error: nowServingError } = await supabaseClient
+          .from('now_serving')
+          .select('*')
+          .eq('id', 1)
+          .single();
+          
+        if (nowServingError) {
+          console.error('Error checking now_serving:', nowServingError);
+        } else if (nowServing && nowServing[counterField] === queueDetails.queue_number) {
+          // Clear the counter in now_serving
+          const updateData = {};
+          updateData[counterField] = 0; // Set to 0 (not null) to match DB structure
+          
+          const { error: updateError } = await supabaseClient
+            .from('now_serving')
+            .update(updateData)
+            .eq('id', 1);
+            
+          if (updateError) {
+            console.error('Error updating now serving:', updateError);
+          }
+        }
+      }
+    }
+    
+    // Clear the global variable only if it matches the queue we just processed
+    if (currentlyCalledQueueId === queueId) {
+      currentlyCalledQueueId = null;
+    }
+    
+    // Mark this call as acknowledged in localStorage to prevent showing it again
+    if (!acknowledgedCalls.includes(queueId)) {
+      acknowledgedCalls.push(queueId);
+      localStorage.setItem('acknowledgedCalls', JSON.stringify(acknowledgedCalls));
+    }
+    
+    loadUserQueueStatus();
+    loadNowServing(); // Refresh the display
+
+    hideNotification();
+    
+  } catch (error) {
+    console.error('Error in auto-cancel:', error);
+  }
+}
+
+  
+  // Queue form submission
+  document.getElementById('queueForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const purpose = document.getElementById('purpose').value;
+    
+    if (!userId) {
+      showMessage('danger', 'You need to be logged in to get a queue number.');
+      return;
+    }
+    
+    try {
+      // Show loading state
+      showMessage('info', 'Processing your request...');
+      
+      // Get the next queue number
+      const { data: existing, error: queryError } = await supabaseClient
+        .from('queues')
+        .select('queue_number')
+        .order('queue_number', { ascending: false })
+        .limit(1);
+      
+      if (queryError) throw queryError;
+      
+      const nextNumber = existing && existing.length ? existing[0].queue_number + 1 : 1;
+      
+      // Insert new queue entry
+      const { error: insertError } = await supabaseClient
+        .from('queues')
+        .insert({
+          user_id: userId,
+          queue_number: nextNumber,
+          purpose: purpose,
+          status: 'waiting'
+        });
+      
+      if (insertError) throw insertError;
+      
+      showMessage('success', `
+        <h4 class="alert-heading">Success!</h4>
+        <p>Your queue number is <strong>${nextNumber}</strong> for <strong>${purpose}</strong>.</p>
+        <p class="mb-0">Please wait for your number to be called.</p>
+      `);
+      document.getElementById('queueForm').reset();
+      
+      // Reload user queue status
+      loadUserQueueStatus();
+      
+    } catch (error) {
+      showMessage('danger', `Error: ${error.message}`);
+    }
+  });
+  
+  // Accept button click handler
+  document.getElementById('acceptBtn').addEventListener('click', async () => {
+    if (!currentlyCalledQueueId) return;
+    
+    try {
+      // Mark this call as acknowledged in localStorage
+      acknowledgedCalls.push(currentlyCalledQueueId);
+      localStorage.setItem('acknowledgedCalls', JSON.stringify(acknowledgedCalls));
+      
+      hideNotification();
+      showMessage('success', 'You have accepted the call. Please proceed to the counter.');
+      
+      // Reload user queue status to update UI
+      loadUserQueueStatus();
+      
+      currentlyCalledQueueId = null;
+    } catch (error) {
+      showMessage('danger', `Error accepting call: ${error.message}`);
+    }
+  });
+  
+
+  document.getElementById('cancelBtn').addEventListener('click', async () => {
+  if (!currentlyCalledQueueId) return;
+  
+  try {
+    // Get queue details first for the counter information
+    const { data: queueDetails, error: fetchError } = await supabaseClient
+      .from('queues')
+      .select('counter, queue_number')
+      .eq('id', currentlyCalledQueueId)
+      .single();
+      
+    if (fetchError) {
+      console.error('Error fetching queue details:', fetchError);
+      return;
+    }
+    
+    // Update queue status
+    const { error } = await supabaseClient
+      .from('queues')
+      .update({ status: 'cancelled' })
+      .eq('id', currentlyCalledQueueId);
+      
+    if (error) {
+      throw error;
+    }
+    
+    // Update now_serving if needed
+    if (queueDetails.counter) {
+      const counterField = `counter_${queueDetails.counter}`;
+      
+      // Get the current now_serving data first
+      const { data: nowServing, error: nowServingError } = await supabaseClient
+        .from('now_serving')
+        .select('*')
+        .eq('id', 1)
+        .single();
+        
+      if (nowServingError) {
+        console.error('Error checking now_serving:', nowServingError);
+      } else if (nowServing && nowServing[counterField] === queueDetails.queue_number) {
+        // Clear the counter in now_serving
+        const updateData = {};
+        updateData[counterField] = 0; // Set to 0 (not null) to match DB structure
+        
+        const { error: updateError } = await supabaseClient
+          .from('now_serving')
+          .update(updateData)
+          .eq('id', 1);
+          
+        if (updateError) {
+          console.error('Error updating now serving:', updateError);
+        }
+      }
+    }
+    
+    // Mark this call as acknowledged in localStorage
+    acknowledgedCalls.push(currentlyCalledQueueId);
+    localStorage.setItem('acknowledgedCalls', JSON.stringify(acknowledgedCalls));
+    
+    hideNotification();
+    showMessage('info', 'You have cancelled your queue number.');
+    currentlyCalledQueueId = null;
+    loadUserQueueStatus();
+    loadNowServing(); // Refresh the display
+  } catch (error) {
+    showMessage('danger', `Error cancelling: ${error.message}`);
+  }
+});
+
+  
+  // Add logout functionality
+  document.getElementById('logoutBtn').addEventListener('click', async () => {
+    try {
+      // Show logging out message
+      showMessage('info', 'Logging out...');
+      
+      // Sign out from Supabase
+      const { error } = await supabaseClient.auth.signOut();
+      
+      if (error) {
+        throw error;
+      }
+      
+     // Show success message briefly before redirecting
+     showMessage('success', 'You have been logged out successfully. Redirecting to login page...');
+      
+      // Redirect to login page after a short delay
+      setTimeout(() => {
+        window.location.href = '/login.html';
+      }, 1500);
+    } catch (error) {
+      showMessage('danger', `Error during logout: ${error.message}`);
+    }
+  });
+  
+  // Load user on page load
+  document.addEventListener('DOMContentLoaded', () => {
+    loadUser();
+  });
+
+  // Clean up resources when page is unloaded
+  window.addEventListener('beforeunload', () => {
+    // Clear any intervals
+    if (refreshInterval) {
+      clearInterval(refreshInterval);
+    }
+    if (timerInterval) {
+      clearInterval(timerInterval);
+    }
+    
+    // Remove realtime subscription
+    if (realtime) {
+      supabaseClient.removeChannel(realtime);
+    }
+  });
+</script>
+</body>
+</html>
