@@ -343,6 +343,9 @@ async function loadCounterControls() {
       return;
     }
     
+    // Log what we got from the database for debugging
+    console.log('Active queues fetched:', activeQueues);
+    
     // Fetch now serving data to know which queue numbers are being served
     const { data: nowServing, error: nowServingError } = await supabaseClient
       .from('now_serving')
@@ -355,15 +358,23 @@ async function loadCounterControls() {
       return;
     }
     
+    console.log('Now serving data:', nowServing);
+    
     // Create a map of counter to queue data for easy lookup
     const counterMap = {};
     activeQueues.forEach(queue => {
-      counterMap[queue.counter] = queue;
+      // Only add to the map if counter is not null
+      if (queue.counter !== null) {
+        counterMap[queue.counter] = queue;
+      }
     });
+    
+    console.log('Counter map created:', counterMap);
 
     // Create a card for each counter
     for (let counter = 1; counter <= counterCount; counter++) {
       const activeQueue = counterMap[counter];
+      console.log(`Checking counter ${counter}, activeQueue:`, activeQueue);
       
       let cardBody = `<div class="text-center py-3"><p class="text-muted">No customer currently being served.</p></div>`;
 
@@ -372,6 +383,8 @@ async function loadCounterControls() {
         // Check if the queue is now serving by comparing the queue number with the now_serving record
         const counterField = `counter_${counter}`;
         const isServing = nowServing[counterField] === activeQueue.queue_number;
+        
+        console.log(`Counter ${counter}: Queue #${activeQueue.queue_number}, isServing: ${isServing}`);
         
         // Enable/disable buttons based on serving status
         let buttonsHtml;
@@ -874,6 +887,9 @@ async function markAsServing(queueId, counter) {
       isLoadingData = false;
       return;
     }
+    
+    // Add this logging to see what's happening
+    console.log(`Marked queue #${queue.queue_number} as serving at counter ${counter}`);
     
     await loadQueueData();
   } catch (error) {
