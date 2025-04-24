@@ -130,484 +130,423 @@
 
 <script>
   // Initialize Supabase client
-  const SUPABASE_URL = 'https://mgxyeoikrddeugnpcrtu.supabase.co';
-  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1neHllb2lrcmRkZXVnbnBjcnR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDUzOTg0MzksImV4cCI6MjA2MDk3NDQzOX0.Lz8tp7_xj7BQaCREeJAc_KifxcjbJN1cdixRiLEs_AU';
-  
-  const { createClient } = supabase;
-  const supabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
-  
-  const counterCount = 3;
-  let currentUser = null;
-  let realtime = null;
-  let isLoadingData = false; // Flag to prevent multiple concurrent data loads
+  // Initialize Supabase client
+const SUPABASE_URL = 'https://mgxyeoikrddeugnpcrtu.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1neHllb2lrcmRkZXVnbnBjcnR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDUzOTg0MzksImV4cCI6MjA2MDk3NDQzOX0.Lz8tp7_xj7BQaCREeJAc_KifxcjbJN1cdixRiLEs_AU';
 
-  // Format date for display
-  function formatDate(dateString) {
-    const date = new Date(dateString);
-    return date.toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true
-    });
-  }
+const { createClient } = supabase;
+const supabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-  // Check for authentication on page load
-  async function checkSession() {
-    try {
-      const { data: { session }, error } = await supabaseClient.auth.getSession();
-      
-      if (error) {
-        console.error('Session error:', error);
-        showLoginMessage();
-        return false;
-      }
-      
-      if (!session) {
-        console.log('No active session found');
-        showLoginMessage();
-        return false;
-      }
-      
-      console.log('Active session found:', session);
-      currentUser = session.user;
-      
-      // Get the user data from the admin table
-      const { data: userData, error: userError } = await supabaseClient
-        .from('admin')
-        .select('*')
-        .eq('id', currentUser.id)
-        .single();
-        
-      if (userError) {
-        console.error('Error fetching admin data:', userError);
-        // Non-admin users shouldn't access this page
-        showLoginMessage();
-        return false;
-      } else {
-        console.log('Admin data:', userData);
-      }
-      
-      document.getElementById('dashboard-content').classList.remove('d-none');
-      setupRealtimeSubscription();
-      return true;
-    } catch (error) {
-      console.error('Error checking session:', error);
+const counterCount = 3;
+let currentUser = null;
+let realtime = null;
+let isLoadingData = false; // Flag to prevent multiple concurrent data loads
+
+// Format date for display
+function formatDate(dateString) {
+  const date = new Date(dateString);
+  return date.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true
+  });
+}
+
+// Check for authentication on page load
+async function checkSession() {
+  try {
+    const { data: { session }, error } = await supabaseClient.auth.getSession();
+    
+    if (error) {
+      console.error('Session error:', error);
       showLoginMessage();
       return false;
     }
+    
+    if (!session) {
+      console.log('No active session found');
+      showLoginMessage();
+      return false;
+    }
+    
+    console.log('Active session found:', session);
+    currentUser = session.user;
+    
+    // Get the user data from the admin table
+    const { data: userData, error: userError } = await supabaseClient
+      .from('admin')
+      .select('*')
+      .eq('id', currentUser.id)
+      .single();
+      
+    if (userError) {
+      console.error('Error fetching admin data:', userError);
+      // Non-admin users shouldn't access this page
+      showLoginMessage();
+      return false;
+    } else {
+      console.log('Admin data:', userData);
+    }
+    
+    document.getElementById('dashboard-content').classList.remove('d-none');
+    setupRealtimeSubscription();
+    return true;
+  } catch (error) {
+    console.error('Error checking session:', error);
+    showLoginMessage();
+    return false;
+  }
+}
+
+function showLoginMessage() {
+  document.getElementById('session-status').classList.remove('d-none');
+  document.getElementById('dashboard-content').classList.add('d-none');
+}
+
+// Set up realtime subscriptions
+function setupRealtimeSubscription() {
+  // Unsubscribe from any existing subscription
+  if (realtime) {
+    supabaseClient.removeChannel(realtime);
   }
 
-  function showLoginMessage() {
-    document.getElementById('session-status').classList.remove('d-none');
-    document.getElementById('dashboard-content').classList.add('d-none');
-  }
+  realtime = supabaseClient
+    .channel('queue-changes')
+    .on('postgres_changes', 
+      { event: '*', schema: 'public', table: 'queues' }, 
+      payload => {
+        console.log('Queue change detected:', payload);
+        loadQueueData();
+      })
+    .on('postgres_changes',
+      { event: '*', schema: 'public', table: 'now_serving' },
+      payload => {
+        console.log('Now serving change detected:', payload);
+        updateNowServing();
+      })
+    .subscribe();
+}
 
-  // Set up realtime subscriptions
-  function setupRealtimeSubscription() {
-    // Unsubscribe from any existing subscription
-    if (realtime) {
-      supabaseClient.removeChannel(realtime);
+// Load all dashboard data
+async function loadDashboard() {
+  // Prevent multiple concurrent data loads
+  if (isLoadingData) {
+    console.log('Already loading data, skipping this request');
+    return;
+  }
+  
+  isLoadingData = true;
+  
+  try {
+    const hasSession = await checkSession();
+    if (!hasSession) {
+      isLoadingData = false;
+      return;
     }
 
-    realtime = supabaseClient
-      .channel('queue-changes')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'queues' }, 
-        payload => {
-          console.log('Queue change detected:', payload);
-          loadQueueData();
-        })
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'now_serving' },
-        payload => {
-          console.log('Now serving change detected:', payload);
-          updateNowServing();
-        })
-      .subscribe();
+    await loadQueueData();
+  } catch (error) {
+    console.error('Error loading dashboard:', error);
+  } finally {
+    isLoadingData = false;
   }
+}
 
-  // Load all dashboard data
-  async function loadDashboard() {
-    // Prevent multiple concurrent data loads
-    if (isLoadingData) {
-      console.log('Already loading data, skipping this request');
+// Load queue-related data
+async function loadQueueData() {
+  try {
+    // Use Promise.all to load data in parallel
+    await Promise.all([
+      updateQueueCounts(),
+      updateNowServing(),
+      loadCounterControls(),
+      loadWaitingQueue(),
+      loadCompletedQueue()
+    ]);
+  } catch (error) {
+    console.error('Error loading queue data:', error);
+  }
+}
+
+// Update queue summary counts
+async function updateQueueCounts() {
+  try {
+    const { count: waitingCount, error: waitingError } = await supabaseClient
+      .from('queues')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'waiting');
+      
+    const { count: calledCount, error: calledError } = await supabaseClient
+      .from('queues')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'called');
+      
+    const { count: completedCount, error: completedError } = await supabaseClient
+      .from('queues')
+      .select('*', { count: 'exact', head: true })
+      .in('status', ['completed', 'cancelled'])
+      .gte('created_at', new Date(new Date().setHours(0, 0, 0, 0)).toISOString());
+      
+    if (waitingError || calledError || completedError) {
+      console.error('Error fetching queue counts');
       return;
     }
     
-    isLoadingData = true;
+    document.getElementById('waiting-count').textContent = waitingCount || 0;
+    document.getElementById('called-count').textContent = calledCount || 0;
+    document.getElementById('completed-count').textContent = completedCount || 0;
+  } catch (error) {
+    console.error('Error updating queue counts:', error);
+  }
+}
+
+// Update now serving numbers
+async function updateNowServing() {
+  try {
+    const { data, error } = await supabaseClient
+      .from('now_serving')
+      .select('*')
+      .eq('id', 1)
+      .single();
+      
+    if (error) {
+      console.error('Error fetching now serving:', error);
+      return;
+    }
     
-    try {
-      const hasSession = await checkSession();
-      if (!hasSession) {
-        isLoadingData = false;
-        return;
-      }
-
-      await loadQueueData();
-    } catch (error) {
-      console.error('Error loading dashboard:', error);
-    } finally {
-      isLoadingData = false;
-    }
+    document.getElementById('counter-1-number').textContent = data.counter_1 || '-';
+    document.getElementById('counter-2-number').textContent = data.counter_2 || '-';
+    document.getElementById('counter-3-number').textContent = data.counter_3 || '-';
+  } catch (error) {
+    console.error('Error updating now serving:', error);
   }
+}
 
-  // Load queue-related data
-  async function loadQueueData() {
-    try {
-      // Use Promise.all to load data in parallel
-      await Promise.all([
-        updateQueueCounts(),
-        updateNowServing(),
-        loadCounterControls(),
-        loadWaitingQueue(),
-        loadCompletedQueue()
-      ]);
-    } catch (error) {
-      console.error('Error loading queue data:', error);
-    }
-  }
+// Load counter control cards
+async function loadCounterControls() {
+  try {
+    // Clear existing counter controls first to prevent duplicates
+    document.getElementById('counter-controls').innerHTML = '';
 
-  // Update queue summary counts
-  async function updateQueueCounts() {
-    try {
-      const { count: waitingCount, error: waitingError } = await supabaseClient
-        .from('queues')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'waiting');
-        
-      const { count: calledCount, error: calledError } = await supabaseClient
-        .from('queues')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'called');
-        
-      const { count: completedCount, error: completedError } = await supabaseClient
-        .from('queues')
-        .select('*', { count: 'exact', head: true })
-        .in('status', ['completed', 'cancelled'])
-        .gte('created_at', new Date(new Date().setHours(0, 0, 0, 0)).toISOString());
-        
-      if (waitingError || calledError || completedError) {
-        console.error('Error fetching queue counts');
-        return;
-      }
+    // Query all active counters at once for better performance
+    const { data: activeQueues, error: activeError } = await supabaseClient
+      .from('queues')
+      .select('*, user:users(first_name, last_name, student_number)')
+      .eq('status', 'called')
+      .order('counter', { ascending: true });
       
-      document.getElementById('waiting-count').textContent = waitingCount || 0;
-      document.getElementById('called-count').textContent = calledCount || 0;
-      document.getElementById('completed-count').textContent = completedCount || 0;
-    } catch (error) {
-      console.error('Error updating queue counts:', error);
+    if (activeError) {
+      console.error('Error fetching active queues:', activeError);
+      return;
     }
-  }
-
-  // Update now serving numbers
-  async function updateNowServing() {
-    try {
-      const { data, error } = await supabaseClient
-        .from('now_serving')
-        .select('*')
-        .eq('id', 1)
-        .single();
-        
-      if (error) {
-        console.error('Error fetching now serving:', error);
-        return;
-      }
+    
+    // Fetch now serving data to know which queue numbers are being served
+    const { data: nowServing, error: nowServingError } = await supabaseClient
+      .from('now_serving')
+      .select('*')
+      .eq('id', 1)
+      .single();
       
-      document.getElementById('counter-1-number').textContent = data.counter_1 || '-';
-      document.getElementById('counter-2-number').textContent = data.counter_2 || '-';
-      document.getElementById('counter-3-number').textContent = data.counter_3 || '-';
-    } catch (error) {
-      console.error('Error updating now serving:', error);
+    if (nowServingError) {
+      console.error('Error fetching now serving:', nowServingError);
+      return;
     }
-  }
+    
+    // Create a map of counter to queue data for easy lookup
+    const counterMap = {};
+    activeQueues.forEach(queue => {
+      counterMap[queue.counter] = queue;
+    });
 
-  // Load counter control cards
-  async function loadCounterControls() {
-    try {
-      // Clear existing counter controls first to prevent duplicates
-      document.getElementById('counter-controls').innerHTML = '';
-
-      // Query all active counters at once for better performance
-      const { data: activeQueues, error: activeError } = await supabaseClient
-        .from('queues')
-        .select('*, user:users(first_name, last_name, student_number)')
-        .eq('status', 'called')
-        .order('counter', { ascending: true });
-        
-      if (activeError) {
-        console.error('Error fetching active queues:', activeError);
-        return;
-      }
+    // Create a card for each counter
+    for (let counter = 1; counter <= counterCount; counter++) {
+      const activeQueue = counterMap[counter];
       
-      // Create a map of counter to queue data for easy lookup
-      const counterMap = {};
-      activeQueues.forEach(queue => {
-        counterMap[queue.counter] = queue;
-      });
+      let cardBody = `<div class="text-center py-3"><p class="text-muted">No customer currently being served.</p></div>`;
 
-      // Create a card for each counter
-      for (let counter = 1; counter <= counterCount; counter++) {
-        const activeQueue = counterMap[counter];
+      if (activeQueue) {
+        const user = activeQueue.user;
+        // Check if the queue is now serving by comparing the queue number with the now_serving record
+        const counterField = `counter_${counter}`;
+        const isServing = nowServing[counterField] === activeQueue.queue_number;
         
-        let cardBody = `<div class="text-center py-3"><p class="text-muted">No customer currently being served.</p></div>`;
+        // Enable/disable buttons based on serving status
+        const buttonsHtml = isServing ? 
+          `<button class="btn btn-success" onclick="markStatus('${activeQueue.id}', 'completed', ${counter})">✅ Complete</button>
+           <button class="btn btn-danger" onclick="markStatus('${activeQueue.id}', 'cancelled', ${counter})">❌ Cancel</button>` :
+          `<button class="btn btn-success" disabled>✅ Complete</button>
+           <button class="btn btn-danger" disabled>❌ Cancel</button>
+           <p class="text-danger mt-2 mb-0">Please wait for customer to be served</p>`;
 
-        if (activeQueue) {
-          const user = activeQueue.user;
-          cardBody = `
-            <div class="p-3">
-              <div class="mb-3">
-                <span class="fw-bold fs-4"># ${activeQueue.queue_number}</span>
-              </div>
-              <p><strong>Student:</strong> ${user.first_name} ${user.last_name}</p>
-              <p><strong>ID:</strong> ${user.student_number}</p>
-              <p><strong>Purpose:</strong> ${activeQueue.purpose}</p>
-              <p><strong>Waiting since:</strong> ${formatDate(activeQueue.created_at)}</p>
-              <div class="d-grid gap-2">
-                <button class="btn btn-success" onclick="markStatus('${activeQueue.id}', 'completed', ${counter})">✅ Complete</button>
-                <button class="btn btn-danger" onclick="markStatus('${activeQueue.id}', 'cancelled', ${counter})">❌ Cancel</button>
-              </div>
+        cardBody = `
+          <div class="p-3">
+            <div class="mb-3">
+              <span class="fw-bold fs-4"># ${activeQueue.queue_number}</span>
+              <span class="badge ${isServing ? 'bg-success' : 'bg-warning ms-2'}">${isServing ? 'Serving' : 'Called'}</span>
             </div>
-          `;
-        }
+            <p><strong>Student:</strong> ${user.first_name} ${user.last_name}</p>
+            <p><strong>ID:</strong> ${user.student_number}</p>
+            <p><strong>Purpose:</strong> ${activeQueue.purpose}</p>
+            <p><strong>Waiting since:</strong> ${formatDate(activeQueue.created_at)}</p>
+            <div class="d-grid gap-2">
+              ${buttonsHtml}
+            </div>
+          </div>
+        `;
+      }
 
-        const card = `
-          <div class="col-md-4 mb-4">
-            <div class="card shadow-sm h-100">
-              <div class="card-header bg-primary text-white">
-                <h5 class="mb-0">Counter ${counter}</h5>
-              </div>
-              <div class="card-body d-flex flex-column">
-                ${cardBody}
-                <div class="mt-auto">
-                  <hr>
-                  <div class="d-grid gap-2">
-                    <button class="btn btn-primary" onclick="callNext(${counter})">⏭️ Call Next</button>
-                  </div>
+      const card = `
+        <div class="col-md-4 mb-4">
+          <div class="card shadow-sm h-100">
+            <div class="card-header bg-primary text-white">
+              <h5 class="mb-0">Counter ${counter}</h5>
+            </div>
+            <div class="card-body d-flex flex-column">
+              ${cardBody}
+              <div class="mt-auto">
+                <hr>
+                <div class="d-grid gap-2">
+                  <button class="btn btn-primary" onclick="callNext(${counter})">⏭️ Call Next</button>
                 </div>
               </div>
             </div>
           </div>
-        `;
-        document.getElementById('counter-controls').innerHTML += card;
-      }
-    } catch (error) {
-      console.error('Error loading counter controls:', error);
+        </div>
+      `;
+      document.getElementById('counter-controls').innerHTML += card;
     }
+  } catch (error) {
+    console.error('Error loading counter controls:', error);
   }
+}
 
-  // Load waiting queue table
-  async function loadWaitingQueue() {
-    try {
-      const { data, error } = await supabaseClient
-        .from('queues')
-        .select('*, user:users(first_name, last_name, student_number)')
-        .eq('status', 'waiting')
-        .order('created_at', { ascending: true })
-        .limit(10);
-        
-      if (error) {
-        console.error('Error fetching waiting queue:', error);
-        return;
-      }
+// Load waiting queue table
+async function loadWaitingQueue() {
+  try {
+    const { data, error } = await supabaseClient
+      .from('queues')
+      .select('*, user:users(first_name, last_name, student_number)')
+      .eq('status', 'waiting')
+      .order('created_at', { ascending: true })
+      .limit(10);
       
-      const waitingQueueEl = document.getElementById('waiting-queue');
-      
-      if (data.length === 0) {
-        waitingQueueEl.innerHTML = `<tr><td colspan="6" class="text-center">No customers waiting</td></tr>`;
-        return;
-      }
-      
-      waitingQueueEl.innerHTML = data.map(queue => `
-        <tr>
-          <td>${queue.queue_number}</td>
-          <td>${queue.user.first_name} ${queue.user.last_name}</td>
-          <td>${queue.user.student_number}</td>
-          <td>${queue.purpose}</td>
-          <td>${formatDate(queue.created_at)}</td>
-          <td>
-            <div class="btn-group btn-group-sm">
-              <button class="btn btn-primary" onclick="callToCounter('${queue.id}', 1)">Counter 1</button>
-              <button class="btn btn-primary" onclick="callToCounter('${queue.id}', 2)">Counter 2</button>
-              <button class="btn btn-primary" onclick="callToCounter('${queue.id}', 3)">Counter 3</button>
-            </div>
-          </td>
-        </tr>
-      `).join('');
-    } catch (error) {
-      console.error('Error loading waiting queue:', error);
-    }
-  }
-
-  // Load completed queue table
-  async function loadCompletedQueue() {
-    try {
-      const { data, error } = await supabaseClient
-        .from('queues')
-        .select('*, user:users(first_name, last_name)')
-        .in('status', ['completed', 'cancelled'])
-        .order('created_at', { ascending: false })
-        .limit(10);
-        
-      if (error) {
-        console.error('Error fetching completed queue:', error);
-        return;
-      }
-      
-      const completedQueueEl = document.getElementById('completed-queue');
-      
-      if (data.length === 0) {
-        completedQueueEl.innerHTML = `<tr><td colspan="6" class="text-center">No completed records</td></tr>`;
-        return;
-      }
-      
-      completedQueueEl.innerHTML = data.map(queue => `
-        <tr>
-          <td>${queue.queue_number}</td>
-          <td>${queue.user.first_name} ${queue.user.last_name}</td>
-          <td>${queue.purpose}</td>
-          <td><span class="badge ${queue.status === 'completed' ? 'bg-success' : 'bg-danger'}">${queue.status}</span></td>
-          <td>${queue.counter || '-'}</td>
-          <td>${formatDate(queue.created_at)}</td>
-        </tr>
-      `).join('');
-    } catch (error) {
-      console.error('Error loading completed queue:', error);
-    }
-  }
-
-  // Call next customer
-  async function callNext(counter) {
-    // Prevent concurrent operations
-    if (isLoadingData) {
-      alert('Please wait, system is processing...');
+    if (error) {
+      console.error('Error fetching waiting queue:', error);
       return;
     }
     
-    isLoadingData = true;
+    const waitingQueueEl = document.getElementById('waiting-queue');
     
-    try {
-      // Check if there's already someone being served at this counter
-      const { data: current, error: currentError } = await supabaseClient
-        .from('queues')
-        .select('id, status')
-        .eq('counter', counter)
-        .eq('status', 'called')
-        .maybeSingle();
-        
-      if (currentError) {
-        console.error('Error checking current service:', currentError);
-        isLoadingData = false;
-        return;
-      }
+    if (data.length === 0) {
+      waitingQueueEl.innerHTML = `<tr><td colspan="6" class="text-center">No customers waiting</td></tr>`;
+      return;
+    }
+    
+    waitingQueueEl.innerHTML = data.map(queue => `
+      <tr>
+        <td>${queue.queue_number}</td>
+        <td>${queue.user.first_name} ${queue.user.last_name}</td>
+        <td>${queue.user.student_number}</td>
+        <td>${queue.purpose}</td>
+        <td>${formatDate(queue.created_at)}</td>
+        <td>
+          <div class="btn-group btn-group-sm">
+            <button class="btn btn-primary" onclick="callToCounter('${queue.id}', 1)">Counter 1</button>
+            <button class="btn btn-primary" onclick="callToCounter('${queue.id}', 2)">Counter 2</button>
+            <button class="btn btn-primary" onclick="callToCounter('${queue.id}', 3)">Counter 3</button>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+  } catch (error) {
+    console.error('Error loading waiting queue:', error);
+  }
+}
+
+// Load completed queue table
+async function loadCompletedQueue() {
+  try {
+    const { data, error } = await supabaseClient
+      .from('queues')
+      .select('*, user:users(first_name, last_name)')
+      .in('status', ['completed', 'cancelled'])
+      .order('created_at', { ascending: false })
+      .limit(10);
       
-      if (current) {
-        if (!confirm(`There is already a customer being served at Counter ${counter}. Mark them as completed and call the next customer?`)) {
-          isLoadingData = false;
-          return;
-        }
-        
-        // Mark current as completed
-        await markStatus(current.id, 'completed', counter, false); // Don't reload data yet
-      }
+    if (error) {
+      console.error('Error fetching completed queue:', error);
+      return;
+    }
+    
+    const completedQueueEl = document.getElementById('completed-queue');
+    
+    if (data.length === 0) {
+      completedQueueEl.innerHTML = `<tr><td colspan="6" class="text-center">No completed records</td></tr>`;
+      return;
+    }
+    
+    completedQueueEl.innerHTML = data.map(queue => `
+      <tr>
+        <td>${queue.queue_number}</td>
+        <td>${queue.user.first_name} ${queue.user.last_name}</td>
+        <td>${queue.purpose}</td>
+        <td><span class="badge ${queue.status === 'completed' ? 'bg-success' : 'bg-danger'}">${queue.status}</span></td>
+        <td>${queue.counter || '-'}</td>
+        <td>${formatDate(queue.created_at)}</td>
+      </tr>
+    `).join('');
+  } catch (error) {
+    console.error('Error loading completed queue:', error);
+  }
+}
+
+// Call next customer
+async function callNext(counter) {
+  // Prevent concurrent operations
+  if (isLoadingData) {
+    alert('Please wait, system is processing...');
+    return;
+  }
+  
+  isLoadingData = true;
+  
+  try {
+    // Check if there's already someone being served at this counter
+    const { data: current, error: currentError } = await supabaseClient
+      .from('queues')
+      .select('id, status')
+      .eq('counter', counter)
+      .eq('status', 'called')
+      .maybeSingle();
       
-      // Get next in queue
-      const { data: next, error: nextError } = await supabaseClient
-        .from('queues')
-        .select('*, user:users(student_number)')
-        .eq('status', 'waiting')
-        .order('created_at', { ascending: true })
-        .limit(1)
-        .maybeSingle();
-        
-      if (nextError) {
-        console.error('Error fetching next in queue:', nextError);
-        isLoadingData = false;
-        return;
-      }
-      
-      if (!next) {
-        alert('No customers waiting in queue');
-        isLoadingData = false;
-        return;
-      }
-      
-      // Update now serving counter number
-      const counterField = `counter_${counter}`;
-      const { error: updateNowServingError } = await supabaseClient
-        .from('now_serving')
-        .update({ [counterField]: next.queue_number })
-        .eq('id', 1);
-        
-      if (updateNowServingError) {
-        console.error('Error updating now serving:', updateNowServingError);
-      }
-      
-      // Update queue status
-      const { error: updateError } = await supabaseClient
-        .from('queues')
-        .update({ 
-          status: 'called',
-          counter: counter
-        })
-        .eq('id', next.id);
-        
-      if (updateError) {
-        console.error('Error updating queue status:', updateError);
-        isLoadingData = false;
-        return;
-      }
-      
-      await loadQueueData();
-    } catch (error) {
-      console.error('Error calling next customer:', error);
-    } finally {
+    if (currentError) {
+      console.error('Error checking current service:', currentError);
       isLoadingData = false;
-    }
-  }
-
-  // Call specific customer to counter
-  async function callToCounter(queueId, counter) {
-    // Prevent concurrent operations
-    if (isLoadingData) {
-      alert('Please wait, system is processing...');
       return;
     }
     
-    isLoadingData = true;
-    
-    try {
-      // Check if there's already someone being served at this counter
-      const { data: current, error: currentError } = await supabaseClient
-        .from('queues')
-        .select('id, status')
-        .eq('status', 'called')
-        .eq('counter', counter)
-        .maybeSingle();
+    // Check if the current queue is being served
+    if (current) {
+      // Get the now_serving data to check if it's being served
+      const { data: nowServing, error: nowServingError } = await supabaseClient
+        .from('now_serving')
+        .select(`counter_${counter}`)
+        .eq('id', 1)
+        .single();
         
-      if (currentError) {
-        console.error('Error checking current service:', currentError);
+      if (nowServingError) {
+        console.error('Error checking now serving:', nowServingError);
         isLoadingData = false;
         return;
       }
       
-      if (current) {
-        if (!confirm(`There is already a customer being served at Counter ${counter}. Mark them as completed and call this customer?`)) {
-          isLoadingData = false;
-          return;
-        }
-        
-        // Mark current as completed
-        await markStatus(current.id, 'completed', counter, false); // Don't reload data yet
-      }
-      
-      // Get queue details
-      const { data: queueDetails, error: queueError } = await supabaseClient
+      const { data: queueItem, error: queueError } = await supabaseClient
         .from('queues')
-        .select('queue_number, status')
-        .eq('id', queueId)
+        .select('queue_number')
+        .eq('id', current.id)
         .single();
         
       if (queueError) {
@@ -616,106 +555,18 @@
         return;
       }
       
-      // Check if the queue is still in waiting status
-      if (queueDetails.status !== 'waiting') {
-        alert('This queue item is no longer waiting and cannot be called.');
-        isLoadingData = false;
-        return;
-      }
+      const isServing = nowServing[`counter_${counter}`] === queueItem.queue_number;
       
-      // Update now serving counter number
-      const counterField = `counter_${counter}`;
-      const { error: updateNowServingError } = await supabaseClient
-        .from('now_serving')
-        .update({ [counterField]: queueDetails.queue_number })
-        .eq('id', 1);
+      if (isServing) {
+        if (!confirm(`There is already a customer being served at Counter ${counter}. Mark them as completed and call the next customer?`)) {
+          isLoadingData = false;
+          return;
+        }
         
-      if (updateNowServingError) {
-        console.error('Error updating now serving:', updateNowServingError);
-      }
-      
-      // Update queue status
-      const { error: updateError } = await supabaseClient
-        .from('queues')
-        .update({ 
-          status: 'called',
-          counter: counter
-        })
-        .eq('id', queueId);
-        
-      if (updateError) {
-        console.error('Error updating queue status:', updateError);
-        isLoadingData = false;
-        return;
-      }
-      
-      await loadQueueData();
-    } catch (error) {
-      console.error('Error calling customer to counter:', error);
-    } finally {
-      isLoadingData = false;
-    }
-  }
-
-  // Mark queue status (completed/cancelled)
-  async function markStatus(id, status, counter, shouldReloadData = true) {
-    // If this is a direct action (not part of another function), prevent concurrent operations
-    if (shouldReloadData && isLoadingData) {
-      alert('Please wait, system is processing...');
-      return;
-    }
-    
-    if (shouldReloadData) {
-      isLoadingData = true;
-    }
-    
-    try {
-      // First, check if the queue item is in 'called' status
-      const { data: queue, error: queueError } = await supabaseClient
-        .from('queues')
-        .select('status')
-        .eq('id', id)
-        .single();
-        
-      if (queueError) {
-        console.error('Error checking queue status:', queueError);
-        if (shouldReloadData) isLoadingData = false;
-        return;
-      }
-      
-      // Only allow completing/cancelling items that are in 'called' status
-      if (queue.status !== 'called') {
-        alert('Only customers that have been called can be marked as completed or cancelled.');
-        if (shouldReloadData) isLoadingData = false;
-        return;
-      }
-      
-      // 1. Update queue status
-      const { error: updateError } = await supabaseClient
-        .from('queues')
-        .update({ status })
-        .eq('id', id);
-        
-      if (updateError) {
-        console.error(`Error marking queue as ${status}:`, updateError);
-        if (shouldReloadData) isLoadingData = false;
-        return;
-      }
-      
-      // 2. Add to queue_reports
-      const { error: reportError } = await supabaseClient
-        .from('queue_reports')
-        .insert({ 
-          queue_id: id,
-          action: status
-        });
-        
-      if (reportError) {
-        console.error('Error creating queue report:', reportError);
-      }
-      
-      // 3. Clear now_serving for this counter
-      if (counter) {
+        // Mark current as completed
+        await markStatus(current.id, 'completed', counter, false); // Don't reload data yet
+      } else {
+        // If not serving yet, just clear the queue item and now_serving
         const counterField = `counter_${counter}`;
         const { error: updateNowServingError } = await supabaseClient
           .from('now_serving')
@@ -725,40 +576,328 @@
         if (updateNowServingError) {
           console.error('Error updating now serving:', updateNowServingError);
         }
+        
+        const { error: updateQueueError } = await supabaseClient
+          .from('queues')
+          .update({ 
+            status: 'waiting',
+            counter: null
+          })
+          .eq('id', current.id);
+          
+        if (updateQueueError) {
+          console.error('Error updating queue status:', updateQueueError);
+        }
+      }
+    }
+    
+    // Get next in queue
+    const { data: next, error: nextError } = await supabaseClient
+      .from('queues')
+      .select('*, user:users(student_number)')
+      .eq('status', 'waiting')
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+      
+    if (nextError) {
+      console.error('Error fetching next in queue:', nextError);
+      isLoadingData = false;
+      return;
+    }
+    
+    if (!next) {
+      alert('No customers waiting in queue');
+      isLoadingData = false;
+      return;
+    }
+    
+    // Update now serving counter number
+    const counterField = `counter_${counter}`;
+    const { error: updateNowServingError } = await supabaseClient
+      .from('now_serving')
+      .update({ [counterField]: next.queue_number })
+      .eq('id', 1);
+      
+    if (updateNowServingError) {
+      console.error('Error updating now serving:', updateNowServingError);
+    }
+    
+    // Update queue status
+    const { error: updateError } = await supabaseClient
+      .from('queues')
+      .update({ 
+        status: 'called',
+        counter: counter
+      })
+      .eq('id', next.id);
+      
+    if (updateError) {
+      console.error('Error updating queue status:', updateError);
+      isLoadingData = false;
+      return;
+    }
+    
+    await loadQueueData();
+  } catch (error) {
+    console.error('Error calling next customer:', error);
+  } finally {
+    isLoadingData = false;
+  }
+}
+
+// Call specific customer to counter
+async function callToCounter(queueId, counter) {
+  // Prevent concurrent operations
+  if (isLoadingData) {
+    alert('Please wait, system is processing...');
+    return;
+  }
+  
+  isLoadingData = true;
+  
+  try {
+    // Check if there's already someone being served at this counter
+    const { data: current, error: currentError } = await supabaseClient
+      .from('queues')
+      .select('id, status, queue_number')
+      .eq('status', 'called')
+      .eq('counter', counter)
+      .maybeSingle();
+      
+    if (currentError) {
+      console.error('Error checking current service:', currentError);
+      isLoadingData = false;
+      return;
+    }
+    
+    if (current) {
+      // Get the now_serving data to check if it's being served
+      const { data: nowServing, error: nowServingError } = await supabaseClient
+        .from('now_serving')
+        .select(`counter_${counter}`)
+        .eq('id', 1)
+        .single();
+        
+      if (nowServingError) {
+        console.error('Error checking now serving:', nowServingError);
+        isLoadingData = false;
+        return;
       }
       
-      if (shouldReloadData) {
-        await loadQueueData();
+      const isServing = nowServing[`counter_${counter}`] === current.queue_number;
+      
+      if (isServing) {
+        if (!confirm(`There is already a customer being served at Counter ${counter}. Mark them as completed and call this customer?`)) {
+          isLoadingData = false;
+          return;
+        }
+        
+        // Mark current as completed
+        await markStatus(current.id, 'completed', counter, false); // Don't reload data yet
+      } else {
+        // If not serving yet, just clear the queue item and now_serving
+        const counterField = `counter_${counter}`;
+        const { error: updateNowServingError } = await supabaseClient
+          .from('now_serving')
+          .update({ [counterField]: 0 })
+          .eq('id', 1);
+          
+        if (updateNowServingError) {
+          console.error('Error updating now serving:', updateNowServingError);
+        }
+        
+        const { error: updateQueueError } = await supabaseClient
+          .from('queues')
+          .update({ 
+            status: 'waiting',
+            counter: null
+          })
+          .eq('id', current.id);
+          
+        if (updateQueueError) {
+          console.error('Error updating queue status:', updateQueueError);
+        }
       }
-    } catch (error) {
-      console.error(`Error marking queue as ${status}:`, error);
-    } finally {
-      if (shouldReloadData) {
-        isLoadingData = false;
+    }
+    
+    // Get queue details
+    const { data: queueDetails, error: queueError } = await supabaseClient
+      .from('queues')
+      .select('queue_number, status')
+      .eq('id', queueId)
+      .single();
+      
+    if (queueError) {
+      console.error('Error fetching queue details:', queueError);
+      isLoadingData = false;
+      return;
+    }
+    
+    // Check if the queue is still in waiting status
+    if (queueDetails.status !== 'waiting') {
+      alert('This queue item is no longer waiting and cannot be called.');
+      isLoadingData = false;
+      return;
+    }
+    
+    // Update now serving counter number
+    const counterField = `counter_${counter}`;
+    const { error: updateNowServingError } = await supabaseClient
+      .from('now_serving')
+      .update({ [counterField]: queueDetails.queue_number })
+      .eq('id', 1);
+      
+    if (updateNowServingError) {
+      console.error('Error updating now serving:', updateNowServingError);
+    }
+    
+    // Update queue status
+    const { error: updateError } = await supabaseClient
+      .from('queues')
+      .update({ 
+        status: 'called',
+        counter: counter
+      })
+      .eq('id', queueId);
+      
+    if (updateError) {
+      console.error('Error updating queue status:', updateError);
+      isLoadingData = false;
+      return;
+    }
+    
+    await loadQueueData();
+  } catch (error) {
+    console.error('Error calling customer to counter:', error);
+  } finally {
+    isLoadingData = false;
+  }
+}
+
+// Mark queue status (completed/cancelled)
+async function markStatus(id, status, counter, shouldReloadData = true) {
+  // If this is a direct action (not part of another function), prevent concurrent operations
+  if (shouldReloadData && isLoadingData) {
+    alert('Please wait, system is processing...');
+    return;
+  }
+  
+  if (shouldReloadData) {
+    isLoadingData = true;
+  }
+  
+  try {
+    // First, check if the queue item is in 'called' status
+    const { data: queue, error: queueError } = await supabaseClient
+      .from('queues')
+      .select('status, queue_number')
+      .eq('id', id)
+      .single();
+      
+    if (queueError) {
+      console.error('Error checking queue status:', queueError);
+      if (shouldReloadData) isLoadingData = false;
+      return;
+    }
+    
+    // Only allow completing/cancelling items that are in 'called' status
+    if (queue.status !== 'called') {
+      alert('Only customers that have been called can be marked as completed or cancelled.');
+      if (shouldReloadData) isLoadingData = false;
+      return;
+    }
+    
+    // Check if the queue is actually being served
+    const counterField = `counter_${counter}`;
+    const { data: nowServing, error: nowServingError } = await supabaseClient
+      .from('now_serving')
+      .select(counterField)
+      .eq('id', 1)
+      .single();
+      
+    if (nowServingError) {
+      console.error('Error checking now serving:', nowServingError);
+      if (shouldReloadData) isLoadingData = false;
+      return;
+    }
+    
+    const isServing = nowServing[counterField] === queue.queue_number;
+    
+    if (!isServing) {
+      alert('This customer has been called but is not yet being served. Please wait for them to be served before marking as completed or cancelled.');
+      if (shouldReloadData) isLoadingData = false;
+      return;
+    }
+    
+    // 1. Update queue status
+    const { error: updateError } = await supabaseClient
+      .from('queues')
+      .update({ status })
+      .eq('id', id);
+      
+    if (updateError) {
+      console.error(`Error marking queue as ${status}:`, updateError);
+      if (shouldReloadData) isLoadingData = false;
+      return;
+    }
+    
+    // 2. Add to queue_reports
+    const { error: reportError } = await supabaseClient
+      .from('queue_reports')
+      .insert({ 
+        queue_id: id,
+        action: status
+      });
+      
+    if (reportError) {
+      console.error('Error creating queue report:', reportError);
+    }
+    
+    // 3. Clear now_serving for this counter
+    if (counter) {
+      const { error: updateNowServingError } = await supabaseClient
+        .from('now_serving')
+        .update({ [counterField]: 0 })
+        .eq('id', 1);
+        
+      if (updateNowServingError) {
+        console.error('Error updating now serving:', updateNowServingError);
       }
+    }
+    
+    if (shouldReloadData) {
+      await loadQueueData();
+    }
+  } catch (error) {
+    console.error(`Error marking queue as ${status}:`, error);
+  } finally {
+    if (shouldReloadData) {
+      isLoadingData = false;
     }
   }
+}
 
-  // Setup refresh button
-  document.getElementById('refresh-btn').addEventListener('click', () => {
-    loadDashboard();
-  });
-
-  // Setup logout functionality
-  document.getElementById('logout-btn').addEventListener('click', async () => {
-    const { error } = await supabaseClient.auth.signOut();
-    if (error) {
-      console.error('Logout failed:', error);
-    } else {
-      window.location.href = 'admin_login.html';
-    }
-  });
-
-  // Initialize the dashboard
+// Setup refresh button
+document.getElementById('refresh-btn').addEventListener('click', () => {
   loadDashboard();
+});
 
-  // Set auto-refresh interval (every 30 seconds)
-  setInterval(loadDashboard, 30000);
+// Setup logout functionality
+document.getElementById('logout-btn').addEventListener('click', async () => {
+  const { error } = await supabaseClient.auth.signOut();
+  if (error) {
+    console.error('Logout failed:', error);
+  } else {
+    window.location.href = 'admin_login.html';
+  }
+});
+
+// Initialize the dashboard
+loadDashboard();
+
+// Set auto-refresh interval (every 30 seconds)
+setInterval(loadDashboard, 30000);
 </script>
 </body>
 </html>
