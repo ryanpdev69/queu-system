@@ -374,12 +374,22 @@ async function loadCounterControls() {
         const isServing = nowServing[counterField] === activeQueue.queue_number;
         
         // Enable/disable buttons based on serving status
-        const buttonsHtml = isServing ? 
-          `<button class="btn btn-success" onclick="markStatus('${activeQueue.id}', 'completed', ${counter})">✅ Complete</button>
-           <button class="btn btn-danger" onclick="markStatus('${activeQueue.id}', 'cancelled', ${counter})">❌ Cancel</button>` :
-          `<button class="btn btn-success" disabled>✅ Complete</button>
-           <button class="btn btn-danger" disabled>❌ Cancel</button>
-           <p class="text-danger mt-2 mb-0">Please wait for customer to be served</p>`;
+        let buttonsHtml;
+        if (isServing) {
+          // If serving, show complete and cancel buttons
+          buttonsHtml = `
+            <button class="btn btn-success" onclick="markStatus('${activeQueue.id}', 'completed', ${counter})">✅ Complete</button>
+            <button class="btn btn-danger" onclick="markStatus('${activeQueue.id}', 'cancelled', ${counter})">❌ Cancel</button>
+          `;
+        } else {
+          // If just called but not serving yet, show "Mark as Serving" button and disabled complete/cancel buttons
+          buttonsHtml = `
+            <button class="btn btn-primary mb-2" onclick="markAsServing('${activeQueue.id}', ${counter})">✓ Mark as Serving</button>
+            <button class="btn btn-success" disabled>✅ Complete</button>
+            <button class="btn btn-danger" disabled>❌ Cancel</button>
+            <p class="text-muted mt-2 mb-0">Customer is called but not yet serving</p>
+          `;
+        }
 
         cardBody = `
           <div class="p-3">
@@ -422,6 +432,8 @@ async function loadCounterControls() {
     console.error('Error loading counter controls:', error);
   }
 }
+
+  
 // Load waiting queue table
 async function loadWaitingQueue() {
   try {
@@ -513,7 +525,7 @@ async function callNext(counter) {
   isLoadingData = true;
   
   try {
-    // Check if there's already someone being served at this counter
+    // Check if there's already someone at this counter
     const { data: current, error: currentError } = await supabaseClient
       .from('queues')
       .select('id, status')
@@ -626,16 +638,8 @@ async function callNext(counter) {
       return;
     }
     
-    // Update now serving counter number - this is what makes it "serving" and enables the buttons
-    const counterField = `counter_${counter}`;
-    const { error: updateNowServingError } = await supabaseClient
-      .from('now_serving')
-      .update({ [counterField]: next.queue_number })
-      .eq('id', 1);
-      
-    if (updateNowServingError) {
-      console.error('Error updating now serving:', updateNowServingError);
-    }
+    // DON'T update now_serving here - this is the key change
+    // Let the staff explicitly mark them as "serving" with a new button we'll add
     
     await loadQueueData();
   } catch (error) {
@@ -645,6 +649,7 @@ async function callNext(counter) {
   }
 }
 
+  
 // Call specific customer to counter
 async function callToCounter(queueId, counter) {
   // Prevent concurrent operations
@@ -656,7 +661,7 @@ async function callToCounter(queueId, counter) {
   isLoadingData = true;
   
   try {
-    // Check if there's already someone being served at this counter
+    // Check if there's already someone at this counter
     const { data: current, error: currentError } = await supabaseClient
       .from('queues')
       .select('id, status, queue_number')
@@ -740,7 +745,7 @@ async function callToCounter(queueId, counter) {
       return;
     }
     
-    // First update queue status to called
+    // Update queue status to called
     const { error: updateError } = await supabaseClient
       .from('queues')
       .update({ 
@@ -755,16 +760,7 @@ async function callToCounter(queueId, counter) {
       return;
     }
     
-    // Then update now serving counter number - this makes it "serving" and enables the buttons
-    const counterField = `counter_${counter}`;
-    const { error: updateNowServingError } = await supabaseClient
-      .from('now_serving')
-      .update({ [counterField]: queueDetails.queue_number })
-      .eq('id', 1);
-      
-    if (updateNowServingError) {
-      console.error('Error updating now serving:', updateNowServingError);
-    }
+    // DON'T update now_serving here - this is the key change
     
     await loadQueueData();
   } catch (error) {
@@ -773,106 +769,55 @@ async function callToCounter(queueId, counter) {
     isLoadingData = false;
   }
 }
+  
 // Mark queue status (completed/cancelled)
-async function markStatus(id, status, counter, shouldReloadData = true) {
-  // If this is a direct action (not part of another function), prevent concurrent operations
-  if (shouldReloadData && isLoadingData) {
+async function markAsServing(queueId, counter) {
+  if (isLoadingData) {
     alert('Please wait, system is processing...');
     return;
   }
   
-  if (shouldReloadData) {
-    isLoadingData = true;
-  }
+  isLoadingData = true;
   
   try {
-    // First, check if the queue item is in 'called' status
+    // Get queue details to get the queue number
     const { data: queue, error: queueError } = await supabaseClient
       .from('queues')
-      .select('status, queue_number')
-      .eq('id', id)
+      .select('queue_number, status')
+      .eq('id', queueId)
       .single();
       
     if (queueError) {
-      console.error('Error checking queue status:', queueError);
-      if (shouldReloadData) isLoadingData = false;
-      return;
-    }
-    
-    // Only allow completing/cancelling items that are in 'called' status
-    if (queue.status !== 'called') {
-      alert('Only customers that have been called can be marked as completed or cancelled.');
-      if (shouldReloadData) isLoadingData = false;
-      return;
-    }
-    
-    // Check if the queue is actually being served
-    const counterField = `counter_${counter}`;
-    const { data: nowServing, error: nowServingError } = await supabaseClient
-      .from('now_serving')
-      .select(counterField)
-      .eq('id', 1)
-      .single();
-      
-    if (nowServingError) {
-      console.error('Error checking now serving:', nowServingError);
-      if (shouldReloadData) isLoadingData = false;
-      return;
-    }
-    
-    const isServing = nowServing[counterField] === queue.queue_number;
-    
-    if (!isServing) {
-      alert('This customer has been called but is not yet being served. Please wait for them to be served before marking as completed or cancelled.');
-      if (shouldReloadData) isLoadingData = false;
-      return;
-    }
-    
-    // 1. Update queue status
-    const { error: updateError } = await supabaseClient
-      .from('queues')
-      .update({ status })
-      .eq('id', id);
-      
-    if (updateError) {
-      console.error(`Error marking queue as ${status}:`, updateError);
-      if (shouldReloadData) isLoadingData = false;
-      return;
-    }
-    
-    // 2. Add to queue_reports
-    const { error: reportError } = await supabaseClient
-      .from('queue_reports')
-      .insert({ 
-        queue_id: id,
-        action: status
-      });
-      
-    if (reportError) {
-      console.error('Error creating queue report:', reportError);
-    }
-    
-    // 3. Clear now_serving for this counter
-    if (counter) {
-      const { error: updateNowServingError } = await supabaseClient
-        .from('now_serving')
-        .update({ [counterField]: 0 })
-        .eq('id', 1);
-        
-      if (updateNowServingError) {
-        console.error('Error updating now serving:', updateNowServingError);
-      }
-    }
-    
-    if (shouldReloadData) {
-      await loadQueueData();
-    }
-  } catch (error) {
-    console.error(`Error marking queue as ${status}:`, error);
-  } finally {
-    if (shouldReloadData) {
+      console.error('Error fetching queue details:', queueError);
       isLoadingData = false;
+      return;
     }
+    
+    // Only allow if the customer is in 'called' status
+    if (queue.status !== 'called') {
+      alert('Only customers that have been called can be marked as serving.');
+      isLoadingData = false;
+      return;
+    }
+    
+    // Update now_serving counter number
+    const counterField = `counter_${counter}`;
+    const { error: updateNowServingError } = await supabaseClient
+      .from('now_serving')
+      .update({ [counterField]: queue.queue_number })
+      .eq('id', 1);
+      
+    if (updateNowServingError) {
+      console.error('Error updating now serving:', updateNowServingError);
+      isLoadingData = false;
+      return;
+    }
+    
+    await loadQueueData();
+  } catch (error) {
+    console.error('Error marking customer as serving:', error);
+  } finally {
+    isLoadingData = false;
   }
 }
 
