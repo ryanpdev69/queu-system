@@ -539,24 +539,29 @@
         let statusBadge;
         let statusClass;
         
-        switch(queue.status) {
-          case 'waiting':
-            statusBadge = '<span class="badge bg-warning">Waiting</span>';
-            statusClass = 'status-waiting';
-            break;
-          case 'called':
-            statusBadge = '<span class="badge bg-success">Called</span>';
-            statusClass = 'status-called';
-            break;
-          case 'completed':
-            statusBadge = '<span class="badge bg-secondary">Completed</span>';
-            statusClass = 'status-completed';
-            break;
-          case 'cancelled':
-            statusBadge = '<span class="badge bg-danger">Cancelled</span>';
-            statusClass = 'status-cancelled';
-            break;
-        }
+       // Add this case to the switch statement in loadUserQueueStatus function:
+switch(queue.status) {
+  case 'waiting':
+    statusBadge = '<span class="badge bg-warning">Waiting</span>';
+    statusClass = 'status-waiting';
+    break;
+  case 'called':
+    statusBadge = '<span class="badge bg-success">Called</span>';
+    statusClass = 'status-called';
+    break;
+  case 'serving':
+    statusBadge = '<span class="badge bg-info">Being Served</span>';
+    statusClass = 'status-serving';
+    break;
+  case 'completed':
+    statusBadge = '<span class="badge bg-secondary">Completed</span>';
+    statusClass = 'status-completed';
+    break;
+  case 'cancelled':
+    statusBadge = '<span class="badge bg-danger">Cancelled</span>';
+    statusClass = 'status-cancelled';
+    break;
+}
         
         const card = document.createElement('div');
         card.className = `card mb-3 ${statusClass}`;
@@ -826,31 +831,39 @@ document.getElementById('queueForm').addEventListener('submit', async (e) => {
     // Show loading state
     showMessage('info', 'Processing your request...');
     
-    // Check if user already has an active queue (waiting or called status)
-    const { data: activeQueues, error: activeError } = await supabaseClient
-      .from('queues')
-      .select('*')
-      .eq('user_id', userId)
-      .in('status', ['waiting', 'called'])
-      .order('created_at', { ascending: false });
-    
-    if (activeError) throw activeError;
-    
-    // If user already has an active queue, prevent creating a new one
-    if (activeQueues && activeQueues.length > 0) {
-      const activeQueue = activeQueues[0];
-      let statusMessage = activeQueue.status === 'waiting' ? 
-        'You are already in the waiting queue.' : 
-        'You have been called to a counter.';
-      
-      showMessage('warning', `
-        <h4 class="alert-heading">Cannot Create New Queue Number</h4>
-        <p>${statusMessage}</p>
-        <p>Queue #${activeQueue.queue_number} for <strong>${activeQueue.purpose}</strong> is still active.</p>
-        <p class="mb-0">Please complete or cancel your current queue before getting a new number.</p>
-      `);
-      return;
-    }
+    // Check if user already has an active queue (waiting, called, or serving status)
+const { data: activeQueues, error: activeError } = await supabaseClient
+  .from('queues')
+  .select('*')
+  .eq('user_id', userId)
+  .in('status', ['waiting', 'called', 'serving'])
+  .order('created_at', { ascending: false });
+
+// And update the message:
+if (activeQueues && activeQueues.length > 0) {
+  const activeQueue = activeQueues[0];
+  let statusMessage;
+  
+  switch(activeQueue.status) {
+    case 'waiting':
+      statusMessage = 'You are already in the waiting queue.';
+      break;
+    case 'called':
+      statusMessage = 'You have been called to a counter.';
+      break;
+    case 'serving':
+      statusMessage = 'You are currently being served at a counter.';
+      break;
+  }
+  
+  showMessage('warning', `
+    <h4 class="alert-heading">Cannot Create New Queue Number</h4>
+    <p>${statusMessage}</p>
+    <p>Queue #${activeQueue.queue_number} for <strong>${activeQueue.purpose}</strong> is still active.</p>
+    <p class="mb-0">Please complete or cancel your current queue before getting a new number.</p>
+  `);
+  return;
+}
     
     // Call the database function to get the next queue number
     // This function handles the daily reset at midnight Philippines time
@@ -906,61 +919,24 @@ document.getElementById('queueForm').addEventListener('submit', async (e) => {
     acknowledgedCalls.push(currentlyCalledQueueId);
     localStorage.setItem('acknowledgedCalls', JSON.stringify(acknowledgedCalls));
     
-    // Update the queue status to "completed" in the database rather than "serving"
-    // This is consistent with your current status options: waiting, called, completed, cancelled
+    // Update the queue status to "serving" instead of "completed"
     const { error: updateError } = await supabaseClient
       .from('queues')
-      .update({ status: 'completed' })
+      .update({ status: 'serving' })
       .eq('id', currentlyCalledQueueId);
       
     if (updateError) {
       throw new Error(updateError.message);
     }
     
-    // Get queue details for counter information
-    const { data: queueDetails, error: fetchError } = await supabaseClient
-      .from('queues')
-      .select('counter, queue_number')
-      .eq('id', currentlyCalledQueueId)
-      .single();
-      
-    if (fetchError) {
-      console.error('Error fetching queue details:', fetchError);
-    } else if (queueDetails && queueDetails.counter) {
-      // Clear the counter in now_serving when the user completes their service
-      const counterField = `counter_${queueDetails.counter}`;
-      
-      // Get the current now_serving data first
-      const { data: nowServing, error: nowServingError } = await supabaseClient
-        .from('now_serving')
-        .select('*')
-        .eq('id', 1)
-        .single();
-        
-      if (nowServingError) {
-        console.error('Error checking now_serving:', nowServingError);
-      } else if (nowServing && nowServing[counterField] === queueDetails.queue_number) {
-        // Clear the counter in now_serving
-        const updateData = {};
-        updateData[counterField] = 0; // Set to 0 (not null) to match DB structure
-        
-        const { error: updateServingError } = await supabaseClient
-          .from('now_serving')
-          .update(updateData)
-          .eq('id', 1);
-          
-        if (updateServingError) {
-          console.error('Error updating now serving:', updateServingError);
-        }
-      }
-    }
+    // NOTE: We're not clearing the counter in now_serving since the user is now being served
+    // The counter should continue to display the queue number while they're being served
     
     hideNotification();
     showMessage('success', 'You have accepted the call. Please proceed to the counter.');
     
     // Reload user queue status to update UI
     loadUserQueueStatus();
-    loadNowServing(); // Refresh the display
     
     currentlyCalledQueueId = null;
   } catch (error) {
