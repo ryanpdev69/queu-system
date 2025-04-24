@@ -898,25 +898,35 @@ document.getElementById('queueForm').addEventListener('submit', async (e) => {
 });
   
   // Accept button click handler
-  document.getElementById('acceptBtn').addEventListener('click', async () => {
-    if (!currentlyCalledQueueId) return;
+ document.getElementById('acceptBtn').addEventListener('click', async () => {
+  if (!currentlyCalledQueueId) return;
+  
+  try {
+    // Mark this call as acknowledged in localStorage
+    acknowledgedCalls.push(currentlyCalledQueueId);
+    localStorage.setItem('acknowledgedCalls', JSON.stringify(acknowledgedCalls));
     
-    try {
-      // Mark this call as acknowledged in localStorage
-      acknowledgedCalls.push(currentlyCalledQueueId);
-      localStorage.setItem('acknowledgedCalls', JSON.stringify(acknowledgedCalls));
+    // Update the queue status to "serving" in the database
+    const { error: updateError } = await supabaseClient
+      .from('queues')
+      .update({ status: 'serving' })
+      .eq('id', currentlyCalledQueueId);
       
-      hideNotification();
-      showMessage('success', 'You have accepted the call. Please proceed to the counter.');
-      
-      // Reload user queue status to update UI
-      loadUserQueueStatus();
-      
-      currentlyCalledQueueId = null;
-    } catch (error) {
-      showMessage('danger', `Error accepting call: ${error.message}`);
+    if (updateError) {
+      throw new Error(updateError.message);
     }
-  });
+    
+    hideNotification();
+    showMessage('success', 'You have accepted the call. Please proceed to the counter.');
+    
+    // Reload user queue status to update UI
+    loadUserQueueStatus();
+    
+    currentlyCalledQueueId = null;
+  } catch (error) {
+    showMessage('danger', `Error accepting call: ${error.message}`);
+  }
+});
   
 
   document.getElementById('cancelBtn').addEventListener('click', async () => {
