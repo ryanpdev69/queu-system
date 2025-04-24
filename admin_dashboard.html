@@ -255,11 +255,12 @@ function setupRealtimeSubscription() {
   }
 
   realtime = supabaseClient
-    .channel('queue-changes')
-    .on('postgres_changes', 
-      { event: '*', schema: 'public', table: 'queues' }, 
-      payload => {
-        console.log('Queue change detected:', payload);
+  .channel('queue-changes')
+  .on('postgres_changes', 
+    { event: '*', schema: 'public', table: 'now_serving' }, 
+    payload => {
+      console.log('Now serving change detected:', payload);
+      updateNowServing();
         
         // Optimized approach to minimize data reloading:
         // 1. If status changed, update relevant UI components
@@ -307,14 +308,6 @@ function setupRealtimeSubscription() {
           console.log('Queue item deleted, reloading all data');
           loadQueueData();
         }
-      })
-    .on('postgres_changes',
-      { event: '*', schema: 'public', table: 'now_serving' },
-      payload => {
-        console.log('Now serving change detected:', payload);
-        // Only update the "now serving" display and counter controls
-        updateNowServing();
-        loadCounterControls();
       })
     .subscribe();
 }
@@ -404,7 +397,7 @@ async function updateQueueCounts() {
 }
 
 
-// Update now serving numbers
+// Fix 2: Improve updateNowServing to handle null/undefined values better
 async function updateNowServing() {
   try {
     const { data, error } = await supabaseClient
@@ -412,13 +405,13 @@ async function updateNowServing() {
       .select('*')
       .eq('id', 1)
       .single();
-      
+
     if (error) {
       console.error('Error fetching now serving:', error);
       return;
     }
-    
-    // Handle null or 0 values properly
+
+    // Update UI elements with the fetched data - handle all possible null/undefined cases
     document.getElementById('counter-1-number').textContent = 
       data.counter_1 && data.counter_1 !== 0 ? data.counter_1 : '-';
     document.getElementById('counter-2-number').textContent = 
@@ -431,6 +424,7 @@ async function updateNowServing() {
   }
 }
 
+// Fix 1: Improve ensureNowServingRecord function to handle errors better
 async function ensureNowServingRecord() {
   try {
     // First try to select the record
@@ -439,28 +433,29 @@ async function ensureNowServingRecord() {
       .select('*')
       .eq('id', 1)
       .single();
-      
-    if (error && error.code === 'PGRST116') { // Record not found
-      console.log('Creating new now_serving record');
-      // Create record with all counters set to null (not 0)
-      const { data: insertData, error: insertError } = await supabaseClient
-        .from('now_serving')
-        .insert([{ 
-          id: 1, 
-          counter_1: null, 
-          counter_2: null, 
-          counter_3: null 
-        }])
-        .select();
-        
-      if (insertError) {
-        console.error('Error creating now_serving record:', insertError);
-        throw insertError;
+
+    if (error) {
+      if (error.code === 'PGRST116') { // Record not found
+        const { data: insertData, error: insertError } = await supabaseClient
+          .from('now_serving')
+          .insert([{ 
+            id: 1, 
+            counter_1: null, 
+            counter_2: null, 
+            counter_3: null 
+          }])
+          .select();
+
+        if (insertError) {
+          console.error('Error creating now_serving record:', insertError);
+          throw insertError;
+        }
+
+        return insertData[0];
+      } else {
+        console.error('Error checking now_serving record:', error);
+        throw error;
       }
-      return insertData[0];
-    } else if (error) {
-      console.error('Error checking now_serving record:', error);
-      throw error;
     }
     
     return data;
@@ -470,7 +465,7 @@ async function ensureNowServingRecord() {
   }
 }
 
-// Load counter control cards
+// Fix 7: Make null handling consistent - use null instead of 0 for empty counters
 async function loadCounterControls() {
   try {
     // Clear existing counter controls first to prevent duplicates
@@ -500,9 +495,6 @@ async function loadCounterControls() {
       return;
     }
     
-    console.log('Active queues:', activeQueues);
-    console.log('Now serving:', nowServing);
-    
     // Create a map of counter to queue data for easy lookup
     const counterMap = {};
     activeQueues.forEach(queue => {
@@ -520,27 +512,23 @@ async function loadCounterControls() {
 
       if (activeQueue) {
         const user = activeQueue.user;
-        // Check if the queue is now serving by comparing the queue number with the now_serving record
-        const counterField = `counter_${counter}`;
-
         const isServing = activeQueue.status === 'serving';
 
-// Enable/disable buttons based on serving status
-let buttonsHtml;
-if (isServing) {
-  // If serving, show complete and cancel buttons
-  buttonsHtml = `
-    <button class="btn btn-success" onclick="markStatus('${activeQueue.id}', 'completed', ${counter})">✅ Complete</button>
-    <button class="btn btn-danger" onclick="markStatus('${activeQueue.id}', 'cancelled', ${counter})">❌ Cancel</button>
-  `;
-} else {
-  // If called but not yet serving, show mark as serving button
-  buttonsHtml = `
-    <button class="btn btn-primary" onclick="markAsServing('${activeQueue.id}', ${counter})">🔔 Mark as Serving</button>
-    <p class="text-muted mt-2 mb-0">Customer is called but not yet serving</p>
-  `;
-}
-
+        // Enable/disable buttons based on serving status
+        let buttonsHtml;
+        if (isServing) {
+          // If serving, show complete and cancel buttons
+          buttonsHtml = `
+            <button class="btn btn-success" onclick="markStatus('${activeQueue.id}', 'completed', ${counter})">✅ Complete</button>
+            <button class="btn btn-danger" onclick="markStatus('${activeQueue.id}', 'cancelled', ${counter})">❌ Cancel</button>
+          `;
+        } else {
+          // If called but not yet serving, show mark as serving button
+          buttonsHtml = `
+            <button class="btn btn-primary" onclick="markAsServing('${activeQueue.id}', ${counter})">🔔 Mark as Serving</button>
+            <p class="text-muted mt-2 mb-0">Customer is called but not yet serving</p>
+          `;
+        }
 
         cardBody = `
           <div class="p-3">
@@ -664,13 +652,14 @@ async function loadCompletedQueue() {
   }
 }
 
+// Fix 3: Make callNext more robust with proper synchronization
 async function callNext(counter) {
   if (isLoadingData) {
-    alert('Please wait, system is processing...');
+    showToast('Please wait, system is processing...', 'warning');
     return;
   }
-
   isLoadingData = true;
+  document.getElementById('loading-indicator').classList.remove('d-none');
 
   try {
     // Check if there's already someone at this counter
@@ -683,40 +672,23 @@ async function callNext(counter) {
 
     if (currentError) {
       console.error('Error checking current service:', currentError);
-      return;
+      throw currentError;
     }
 
     if (current) {
-      // Get the now_serving data
-      const { data: nowServing, error: nowServingError } = await supabaseClient
-        .from('now_serving')
-        .select(`counter_${counter}`)
-        .eq('id', 1)
-        .single();
-
-      if (nowServingError) {
-        console.error('Error checking now serving:', nowServingError);
-        return;
-      }
-
-      const isServing = nowServing[`counter_${counter}`] === current.queue_number;
-
-      if (isServing) {
-        // Automatically mark as completed before calling next
+      // If someone is already at this counter, handle appropriately
+      if (current.status === 'serving') {
+        // If serving, mark as completed before calling next
+        const confirmComplete = confirm(`Complete the service for customer #${current.queue_number}?`);
+        if (!confirmComplete) {
+          isLoadingData = false;
+          document.getElementById('loading-indicator').classList.add('d-none');
+          return;
+        }
         await markStatus(current.id, 'completed', counter, false); // false = don't reload data yet
       } else {
-        // Not yet serving, just clear the slot and queue assignment
-        const counterField = `counter_${counter}`;
-        const { error: updateNowServingError } = await supabaseClient
-          .from('now_serving')
-          .update({ [counterField]: 0 })
-          .eq('id', 1);
-
-        if (updateNowServingError) {
-          console.error('Error updating now serving:', updateNowServingError);
-        }
-
-        const { error: updateQueueError } = await supabaseClient
+        // If called but not serving, reset to waiting
+        const { error: resetError } = await supabaseClient
           .from('queues')
           .update({
             status: 'waiting',
@@ -724,8 +696,21 @@ async function callNext(counter) {
           })
           .eq('id', current.id);
 
-        if (updateQueueError) {
-          console.error('Error updating queue status:', updateQueueError);
+        if (resetError) {
+          console.error('Error resetting current customer:', resetError);
+          throw resetError;
+        }
+        
+        // Clear the now_serving display
+        const counterField = `counter_${counter}`;
+        const { error: nowServingError } = await supabaseClient
+          .from('now_serving')
+          .update({ [counterField]: null })
+          .eq('id', 1);
+
+        if (nowServingError) {
+          console.error('Error updating now serving:', nowServingError);
+          throw nowServingError;
         }
       }
     }
@@ -741,11 +726,11 @@ async function callNext(counter) {
 
     if (nextError) {
       console.error('Error fetching next in queue:', nextError);
-      return;
+      throw nextError;
     }
 
     if (!next) {
-      alert('No customers waiting in queue');
+      showToast('No customers waiting in queue', 'info');
       return;
     }
 
@@ -760,7 +745,7 @@ async function callNext(counter) {
 
     if (updateError) {
       console.error('Error updating queue status:', updateError);
-      return;
+      throw updateError;
     }
     
     // Update the now_serving table with the queue number
@@ -772,6 +757,7 @@ async function callNext(counter) {
 
     if (nowServingError) {
       console.error('Error updating now serving:', nowServingError);
+      throw nowServingError;
     }
 
     showToast(`Customer #${next.queue_number} called to counter ${counter}`, 'success');
@@ -781,81 +767,59 @@ async function callNext(counter) {
     showToast('Error calling next customer', 'danger');
   } finally {
     isLoadingData = false;
+    document.getElementById('loading-indicator').classList.add('d-none');
   }
 }
 
 
-// Call specific customer to counter
+// Fix 4: Improve callToCounter to ensure now_serving table is properly updated
 async function callToCounter(queueId, counter) {
   if (isLoadingData) {
-    alert('Please wait, system is processing...');
+    showToast('Please wait, system is processing...', 'warning');
     return;
   }
 
   isLoadingData = true;
+  document.getElementById('loading-indicator').classList.remove('d-none');
 
   try {
     // Step 1: Check if there's already someone being served at this counter
     const { data: current, error: currentError } = await supabaseClient
       .from('queues')
       .select('id, status, queue_number')
-      .eq('status', 'called')
       .eq('counter', counter)
+      .in('status', ['called', 'serving'])
       .maybeSingle();
 
     if (currentError) {
       console.error('Error checking current service:', currentError);
-      return;
+      throw currentError;
     }
 
     if (current) {
-      // Step 2: Check if this counter is currently serving that customer
-      const { data: nowServing, error: nowServingError } = await supabaseClient
-        .from('now_serving')
-        .select(`counter_${counter}`)
-        .eq('id', 1)
-        .single();
-
-      if (nowServingError) {
-        console.error('Error checking now serving:', nowServingError);
+      const confirmReplace = confirm(`There is already a customer at Counter ${counter}. Replace with this customer?`);
+      if (!confirmReplace) {
+        isLoadingData = false;
+        document.getElementById('loading-indicator').classList.add('d-none');
         return;
       }
 
-      const isServing = nowServing[`counter_${counter}`] === current.queue_number;
+      // Reset the current customer back to waiting
+      const { error: resetError } = await supabaseClient
+        .from('queues')
+        .update({
+          status: 'waiting',
+          counter: null
+        })
+        .eq('id', current.id);
 
-      if (isServing) {
-        const confirmComplete = confirm(`There is already a customer being served at Counter ${counter}. Mark them as completed and call this customer?`);
-        if (!confirmComplete) return;
-
-        await markStatus(current.id, 'completed', counter, false); // mark as completed, no reload yet
-      } else {
-        // Step 3: Reset the counter (clear now_serving and return queue status to 'waiting')
-        const counterField = `counter_${counter}`;
-
-        const { error: updateNowServingError } = await supabaseClient
-          .from('now_serving')
-          .update({ [counterField]: 0 })
-          .eq('id', 1);
-
-        if (updateNowServingError) {
-          console.error('Error clearing now_serving:', updateNowServingError);
-        }
-
-        const { error: updateQueueError } = await supabaseClient
-          .from('queues')
-          .update({
-            status: 'waiting',
-            counter: null
-          })
-          .eq('id', current.id);
-
-        if (updateQueueError) {
-          console.error('Error resetting previous queue status:', updateQueueError);
-        }
+      if (resetError) {
+        console.error('Error resetting current customer:', resetError);
+        throw resetError;
       }
     }
 
-    // Step 4: Fetch queue details of the customer to be called
+    // Step 2: Fetch queue details of the customer to be called
     const { data: queueDetails, error: queueError } = await supabaseClient
       .from('queues')
       .select('queue_number, status')
@@ -864,15 +828,17 @@ async function callToCounter(queueId, counter) {
 
     if (queueError) {
       console.error('Error fetching queue details:', queueError);
-      return;
+      throw queueError;
     }
 
     if (queueDetails.status !== 'waiting') {
-      alert('This queue item is no longer in waiting status.');
+      showToast('This queue item is no longer in waiting status.', 'warning');
+      isLoadingData = false;
+      document.getElementById('loading-indicator').classList.add('d-none');
       return;
     }
 
-    // Step 5: Update the queue status to 'called' and assign the counter
+    // Step 3: Update the queue status to 'called' and assign the counter
     const { error: updateError } = await supabaseClient
       .from('queues')
       .update({
@@ -883,22 +849,20 @@ async function callToCounter(queueId, counter) {
 
     if (updateError) {
       console.error('Error updating queue status:', updateError);
-      return;
+      throw updateError;
     }
 
-    // Step 6: Update now_serving table for the assigned counter
+    // Step 4: Update now_serving table for the assigned counter
     const counterField = `counter_${counter}`;
-  const { error: nowServingUpdateError } = await supabaseClient
-    .from('now_serving')
-    .update({ [counterField]: queueDetails.queue_number })
-    .eq('id', 1);
+    const { error: nowServingUpdateError } = await supabaseClient
+      .from('now_serving')
+      .update({ [counterField]: queueDetails.queue_number })
+      .eq('id', 1);
 
-  if (nowServingUpdateError) {
-    console.error('Error updating now_serving:', nowServingUpdateError);
-    console.log('Attempted to update', counterField, 'with', queueDetails.queue_number); // Add debug
-  } else {
-    console.log('Successfully updated now_serving', counterField, 'to', queueDetails.queue_number); // Add debug
-  }
+    if (nowServingUpdateError) {
+      console.error('Error updating now_serving:', nowServingUpdateError);
+      throw nowServingUpdateError;
+    }
 
     // Final: Notify and reload data
     showToast(`Customer #${queueDetails.queue_number} called to counter ${counter}`, 'success');
@@ -909,9 +873,148 @@ async function callToCounter(queueId, counter) {
     showToast('Error calling customer to counter', 'danger');
   } finally {
     isLoadingData = false;
+    document.getElementById('loading-indicator').classList.add('d-none');
   }
 }
 
+
+// Fix 5: Improve markStatus for better error handling and null values
+async function markStatus(queueId, status, counter, reloadData = true) {
+  // Prevent concurrent operations if this is a direct user action
+  if (reloadData && isLoadingData) {
+    showToast('Please wait, system is processing...', 'warning');
+    return;
+  }
+  
+  if (reloadData) {
+    isLoadingData = true;
+    document.getElementById('loading-indicator').classList.remove('d-none');
+  }
+  
+  try {
+    // Get queue details first
+    const { data: queue, error: queueError } = await supabaseClient
+      .from('queues')
+      .select('queue_number')
+      .eq('id', queueId)
+      .single();
+      
+    if (queueError) {
+      console.error('Error fetching queue details:', queueError);
+      throw queueError;
+    }
+    
+    // Reset now serving display
+    const counterField = `counter_${counter}`;
+    const { error: updateNowServingError } = await supabaseClient
+      .from('now_serving')
+      .update({ [counterField]: null }) // Set to null instead of 0
+      .eq('id', 1);
+
+    if (updateNowServingError) {
+      console.error('Error resetting now serving:', updateNowServingError);
+      throw updateNowServingError;
+    }
+    
+    // Update queue status to completed or cancelled
+    const { error: updateQueueError } = await supabaseClient
+      .from('queues')
+      .update({
+        status: status,
+        counter: null
+      })
+      .eq('id', queueId);
+
+    if (updateQueueError) {
+      console.error(`Error marking queue as ${status}:`, updateQueueError);
+      throw updateQueueError;
+    }
+    
+    showToast(`Customer #${queue.queue_number} marked as ${status}`, 'success');
+    
+    // Optional data reload (skipped when chaining operations)
+    if (reloadData) {
+      await loadQueueData();
+    }
+  } catch (error) {
+    console.error(`Error marking as ${status}:`, error);
+    showToast(`Error marking as ${status}`, 'danger');
+  } finally {
+    if (reloadData) {
+      isLoadingData = false;
+      document.getElementById('loading-indicator').classList.add('d-none');
+    }
+  }
+}
+
+// Fix 6: Improved realtime subscription handling
+function setupRealtimeSubscription() {
+  // Unsubscribe from any existing subscription
+  if (realtime) {
+    supabaseClient.removeChannel(realtime);
+  }
+
+  realtime = supabaseClient
+    .channel('queue-changes')
+    .on('postgres_changes', 
+      { event: '*', schema: 'public', table: 'now_serving' }, 
+      payload => {
+        console.log('Now serving change detected:', payload);
+        updateNowServing();
+      })
+    .on('postgres_changes',
+      { event: '*', schema: 'public', table: 'queues' },
+      payload => {
+        console.log('Queue change detected:', payload);
+        
+        // Always update queue counts
+        updateQueueCounts();
+        
+        // Status changes require more comprehensive updates
+        if (payload.new && payload.old && payload.new.status !== payload.old.status) {
+          if (['waiting'].includes(payload.new.status) || ['waiting'].includes(payload.old.status)) {
+            loadWaitingQueue();
+          }
+          
+          if (['completed', 'cancelled'].includes(payload.new.status) || 
+              ['completed', 'cancelled'].includes(payload.old.status)) {
+            loadCompletedQueue();
+          }
+          
+          if (['called', 'serving'].includes(payload.new.status) || 
+              ['called', 'serving'].includes(payload.old.status)) {
+            loadCounterControls();
+          }
+        }
+        
+        // Counter changes require counter control updates
+        else if (payload.new && payload.old && payload.new.counter !== payload.old.counter) {
+          loadCounterControls();
+          
+          // If the counter change involves waiting status, update waiting queue
+          if (payload.new.status === 'waiting' || payload.old.status === 'waiting') {
+            loadWaitingQueue();
+          }
+        }
+        
+        // For new items or deleted items, refresh relevant data
+        else if (payload.eventType === 'INSERT' || payload.eventType === 'DELETE') {
+          loadWaitingQueue();
+          loadCounterControls();
+          loadCompletedQueue();
+        }
+      })
+    .subscribe((status) => {
+      console.log('Realtime subscription status:', status);
+      if (status !== 'SUBSCRIBED') {
+        // If subscription fails, try again after a delay
+        setTimeout(() => {
+          console.log('Attempting to reconnect realtime subscription...');
+          setupRealtimeSubscription();
+        }, 5000);
+      }
+    });
+}
 
 // Mark as serving
 async function markAsServing(queueId, counter) {
@@ -943,19 +1046,6 @@ async function markAsServing(queueId, counter) {
       return;
     }
     
-    // Update now serving display
-    const counterField = `counter_${counter}`;
-    const { error: updateNowServingError } = await supabaseClient
-      .from('now_serving')
-      .update({ [counterField]: queue.queue_number })
-      .eq('id', 1);
-      
-    if (updateNowServingError) {
-      console.error('Error updating now serving:', updateNowServingError);
-      isLoadingData = false;
-      return;
-    }
-    
     // Update queue status to serving
     const { error: updateQueueError } = await supabaseClient
       .from('queues')
@@ -968,6 +1058,8 @@ async function markAsServing(queueId, counter) {
       return;
     }
     
+    // No need to update now_serving again as it already has the queue number
+    
     showToast(`Now serving customer #${queue.queue_number} at counter ${counter}`, 'success');
     await loadQueueData();
   } catch (error) {
@@ -978,72 +1070,6 @@ async function markAsServing(queueId, counter) {
   }
 }
 
-// Mark queue item status (completed/cancelled)
-async function markStatus(queueId, status, counter, reloadData = true) {
-  // Prevent concurrent operations if this is a direct user action
-  if (reloadData && isLoadingData) {
-    alert('Please wait, system is processing...');
-    return;
-  }
-  
-  if (reloadData) {
-    isLoadingData = true;
-  }
-  
-  try {
-    // Get queue details first
-    const { data: queue, error: queueError } = await supabaseClient
-      .from('queues')
-      .select('queue_number')
-      .eq('id', queueId)
-      .single();
-      
-    if (queueError) {
-      console.error('Error fetching queue details:', queueError);
-      if (reloadData) isLoadingData = false;
-      return;
-    }
-    
-    // Reset now serving display
-    const counterField = `counter_${counter}`;
-    const { error: updateNowServingError } = await supabaseClient
-      .from('now_serving')
-      .update({ [counterField]: 0 })
-      .eq('id', 1);
-      
-    if (updateNowServingError) {
-      console.error('Error updating now serving:', updateNowServingError);
-      if (reloadData) isLoadingData = false;
-      return;
-    }
-    
-    // Update queue status
-    const { error: updateQueueError } = await supabaseClient
-      .from('queues')
-      .update({ status: status })
-      .eq('id', queueId);
-      
-    if (updateQueueError) {
-      console.error('Error updating queue status:', updateQueueError);
-      if (reloadData) isLoadingData = false;
-      return;
-    }
-    
-    showToast(`Customer #${queue.queue_number} marked as ${status}`, 'success');
-    
-    // Optional data reload (skipped when chaining operations)
-    if (reloadData) {
-      await loadQueueData();
-    }
-  } catch (error) {
-    console.error(`Error marking as ${status}:`, error);
-    showToast(`Error marking as ${status}`, 'danger');
-  } finally {
-    if (reloadData) {
-      isLoadingData = false;
-    }
-  }
-}
 
 // Handle logout
 async function handleLogout() {
