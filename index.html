@@ -916,52 +916,34 @@ document.getElementById('acceptBtn').addEventListener('click', async () => {
   if (!currentlyCalledQueueId) return;
   
   try {
-    // 1. Get the current queue details first
-    const { data: queue, error: fetchError } = await supabaseClient
-      .from('queues')
-      .select('queue_number, counter')
-      .eq('id', currentlyCalledQueueId)
-      .single();
-    
-    if (fetchError) throw fetchError;
-
-    // 2. Mark as acknowledged in localStorage
+    // Mark this call as acknowledged in localStorage
     acknowledgedCalls.push(currentlyCalledQueueId);
     localStorage.setItem('acknowledgedCalls', JSON.stringify(acknowledgedCalls));
     
-    // 3. Update queue status to 'serving'
+    // Update the queue status to "serving" instead of "completed"
     const { error: updateError } = await supabaseClient
       .from('queues')
-      .update({ 
-        status: 'serving',
-        served_at: new Date().toISOString()  // Add timestamp if needed
-      })
+      .update({ status: 'serving' })
       .eq('id', currentlyCalledQueueId);
-    
-    if (updateError) throw updateError;
-
-    // 4. Update now_serving if needed (optional)
-    if (queue.counter) {
-      await supabaseClient
-        .from('now_serving')
-        .update({ [`counter_${queue.counter}`]: queue.queue_number })
-        .eq('id', 1);
+      
+    if (updateError) {
+      throw new Error(updateError.message);
     }
-
-    // 5. UI Updates
+    
+    // NOTE: We're not clearing the counter in now_serving since the user is now being served
+    // The counter should continue to display the queue number while they're being served
+    
     hideNotification();
-    showMessage('success', `Please proceed to Counter ${queue.counter} (Number ${queue.queue_number})`);
+    showMessage('success', 'You have accepted the call. Please proceed to the counter.');
+    
+    // Reload user queue status to update UI
     loadUserQueueStatus();
     
-    // 6. Reset tracking
     currentlyCalledQueueId = null;
-    
   } catch (error) {
-    console.error('Accept error:', error);
-    showMessage('danger', `Failed to accept: ${error.message}`);
+    showMessage('danger', `Error accepting call: ${error.message}`);
   }
 });
-
   document.getElementById('cancelBtn').addEventListener('click', async () => {
   if (!currentlyCalledQueueId) return;
   
