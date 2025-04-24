@@ -469,37 +469,36 @@
     }
   }
   
-  function updateNowServingDisplay(data) {
+  // Match the counter display logic from admin
+function updateNowServingDisplay(data) {
   if (!data) return;
-  
-  // Store the current values for comparison
+
+  // Store current values before updating
   const current = {
     counter_1: document.getElementById('counter1').textContent,
     counter_2: document.getElementById('counter2').textContent,
     counter_3: document.getElementById('counter3').textContent
   };
-  
-  // Update the display with new values
-  // Use dash (-) if the counter value is 0 or not present
-  document.getElementById('counter1').textContent = data.counter_1 > 0 ? data.counter_1 : '-';
-  document.getElementById('counter2').textContent = data.counter_2 > 0 ? data.counter_2 : '-'; 
-  document.getElementById('counter3').textContent = data.counter_3 > 0 ? data.counter_3 : '-';
-  
-  // Add visual indicator for changed values
-  if (current.counter_1 !== document.getElementById('counter1').textContent) {
-    flashUpdate('counterBox1');
-  }
-  if (current.counter_2 !== document.getElementById('counter2').textContent) {
-    flashUpdate('counterBox2');
-  }
-  if (current.counter_3 !== document.getElementById('counter3').textContent) {
-    flashUpdate('counterBox3');
-  }
-  
-  // Save the new data for future comparisons
+
+  // Update display values
+  const newValues = {
+    counter_1: data.counter_1 > 0 ? data.counter_1 : '-',
+    counter_2: data.counter_2 > 0 ? data.counter_2 : '-',
+    counter_3: data.counter_3 > 0 ? data.counter_3 : '-'
+  };
+
+  document.getElementById('counter1').textContent = newValues.counter_1;
+  document.getElementById('counter2').textContent = newValues.counter_2;
+  document.getElementById('counter3').textContent = newValues.counter_3;
+
+  // Add visual indicators for changed values
+  if (current.counter_1 !== newValues.counter_1) flashUpdate('counterBox1');
+  if (current.counter_2 !== newValues.counter_2) flashUpdate('counterBox2');
+  if (current.counter_3 !== newValues.counter_3) flashUpdate('counterBox3');
+
+  // Save for future comparisons
   lastNowServing = data;
 }
-
 
   function flashUpdate(elementId) {
     const element = document.getElementById(elementId);
@@ -540,6 +539,7 @@
         let statusClass;
         
        // Add this case to the switch statement in loadUserQueueStatus function:
+// Update the status cases to match admin dashboard
 switch(queue.status) {
   case 'waiting':
     statusBadge = '<span class="badge bg-warning">Waiting</span>';
@@ -867,7 +867,8 @@ if (activeQueues && activeQueues.length > 0) {
     
     // Call the database function to get the next queue number
     // This function handles the daily reset at midnight Philippines time
-    const { data: sequenceResult, error: sequenceError } = await supabaseClient.rpc('get_next_queue_number');
+    const { data: sequenceResult, error: sequenceError } = await supabaseClient
+  .rpc('get_next_queue_number');
     
     if (sequenceError) throw sequenceError;
     
@@ -911,39 +912,55 @@ if (activeQueues && activeQueues.length > 0) {
 });
   
   // Accept button click handler
- document.getElementById('acceptBtn').addEventListener('click', async () => {
+document.getElementById('acceptBtn').addEventListener('click', async () => {
   if (!currentlyCalledQueueId) return;
   
   try {
-    // Mark this call as acknowledged in localStorage
+    // 1. Get the current queue details first
+    const { data: queue, error: fetchError } = await supabaseClient
+      .from('queues')
+      .select('queue_number, counter')
+      .eq('id', currentlyCalledQueueId)
+      .single();
+    
+    if (fetchError) throw fetchError;
+
+    // 2. Mark as acknowledged in localStorage
     acknowledgedCalls.push(currentlyCalledQueueId);
     localStorage.setItem('acknowledgedCalls', JSON.stringify(acknowledgedCalls));
     
-    // Update the queue status to "serving" instead of "completed"
+    // 3. Update queue status to 'serving'
     const { error: updateError } = await supabaseClient
       .from('queues')
-      .update({ status: 'serving' })
+      .update({ 
+        status: 'serving',
+        served_at: new Date().toISOString()  // Add timestamp if needed
+      })
       .eq('id', currentlyCalledQueueId);
-      
-    if (updateError) {
-      throw new Error(updateError.message);
+    
+    if (updateError) throw updateError;
+
+    // 4. Update now_serving if needed (optional)
+    if (queue.counter) {
+      await supabaseClient
+        .from('now_serving')
+        .update({ [`counter_${queue.counter}`]: queue.queue_number })
+        .eq('id', 1);
     }
-    
-    // NOTE: We're not clearing the counter in now_serving since the user is now being served
-    // The counter should continue to display the queue number while they're being served
-    
+
+    // 5. UI Updates
     hideNotification();
-    showMessage('success', 'You have accepted the call. Please proceed to the counter.');
-    
-    // Reload user queue status to update UI
+    showMessage('success', `Please proceed to Counter ${queue.counter} (Number ${queue.queue_number})`);
     loadUserQueueStatus();
     
+    // 6. Reset tracking
     currentlyCalledQueueId = null;
+    
   } catch (error) {
-    showMessage('danger', `Error accepting call: ${error.message}`);
+    console.error('Accept error:', error);
+    showMessage('danger', `Failed to accept: ${error.message}`);
   }
 });
-  
 
   document.getElementById('cancelBtn').addEventListener('click', async () => {
   if (!currentlyCalledQueueId) return;
