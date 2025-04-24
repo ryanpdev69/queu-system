@@ -906,14 +906,53 @@ document.getElementById('queueForm').addEventListener('submit', async (e) => {
     acknowledgedCalls.push(currentlyCalledQueueId);
     localStorage.setItem('acknowledgedCalls', JSON.stringify(acknowledgedCalls));
     
-    // Update the queue status to "serving" in the database
+    // Update the queue status to "completed" in the database rather than "serving"
+    // This is consistent with your current status options: waiting, called, completed, cancelled
     const { error: updateError } = await supabaseClient
       .from('queues')
-      .update({ status: 'serving' })
+      .update({ status: 'completed' })
       .eq('id', currentlyCalledQueueId);
       
     if (updateError) {
       throw new Error(updateError.message);
+    }
+    
+    // Get queue details for counter information
+    const { data: queueDetails, error: fetchError } = await supabaseClient
+      .from('queues')
+      .select('counter, queue_number')
+      .eq('id', currentlyCalledQueueId)
+      .single();
+      
+    if (fetchError) {
+      console.error('Error fetching queue details:', fetchError);
+    } else if (queueDetails && queueDetails.counter) {
+      // Clear the counter in now_serving when the user completes their service
+      const counterField = `counter_${queueDetails.counter}`;
+      
+      // Get the current now_serving data first
+      const { data: nowServing, error: nowServingError } = await supabaseClient
+        .from('now_serving')
+        .select('*')
+        .eq('id', 1)
+        .single();
+        
+      if (nowServingError) {
+        console.error('Error checking now_serving:', nowServingError);
+      } else if (nowServing && nowServing[counterField] === queueDetails.queue_number) {
+        // Clear the counter in now_serving
+        const updateData = {};
+        updateData[counterField] = 0; // Set to 0 (not null) to match DB structure
+        
+        const { error: updateServingError } = await supabaseClient
+          .from('now_serving')
+          .update(updateData)
+          .eq('id', 1);
+          
+        if (updateServingError) {
+          console.error('Error updating now serving:', updateServingError);
+        }
+      }
     }
     
     hideNotification();
@@ -921,6 +960,7 @@ document.getElementById('queueForm').addEventListener('submit', async (e) => {
     
     // Reload user queue status to update UI
     loadUserQueueStatus();
+    loadNowServing(); // Refresh the display
     
     currentlyCalledQueueId = null;
   } catch (error) {
