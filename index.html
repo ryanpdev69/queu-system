@@ -248,9 +248,17 @@
 
 <script>
   // Initialize Supabase client
-  const SUPABASE_URL = 'https://mgxyeoikrddeugnpcrtu.supabase.co';
-  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1neHllb2lrcmRkZXVnbnBjcnR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDUzOTg0MzksImV4cCI6MjA2MDk3NDQzOX0.Lz8tp7_xj7BQaCREeJAc_KifxcjbJN1cdixRiLEs_AU';
-  
+const SUPABASE_URL = 'https://mgxyeoikrddeugnpcrtu.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1neHllb2lrcmRkZXVnbnBjcnR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDUzOTg0MzksImV4cCI6MjA2MDk3NDQzOX0.Lz8tp7_xj7BQaCREeJAc_KifxcjbJN1cdixRiLEs_AU';
+
+// Make sure supabase is imported properly before creating client
+document.addEventListener('DOMContentLoaded', async () => {
+  // Check if supabase is available
+  if (typeof supabase === 'undefined') {
+    showMessage('danger', 'Supabase client library not loaded. Please check your HTML file includes the Supabase JS library.');
+    return;
+  }
+
   const { createClient } = supabase;
   const supabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
   
@@ -268,7 +276,12 @@
   const acknowledgedCalls = JSON.parse(localStorage.getItem('acknowledgedCalls') || '[]');
   
   function showMessage(type, text) {
-    document.getElementById('result').innerHTML = `<div class="alert alert-${type}">${text}</div>`;
+    const resultEl = document.getElementById('result');
+    if (resultEl) {
+      resultEl.innerHTML = `<div class="alert alert-${type}">${text}</div>`;
+    } else {
+      console.error('Element with id "result" not found');
+    }
   }
   
   function formatDate(dateString) {
@@ -288,9 +301,15 @@
       // Check if user is authenticated
       const { data: { session }, error } = await supabaseClient.auth.getSession();
       
+      const userInfoEl = document.getElementById('userInfo');
+      if (!userInfoEl) {
+        console.error('Element with id "userInfo" not found');
+        return;
+      }
+      
       if (error) {
         console.error("Session error:", error);
-        document.getElementById('userInfo').innerHTML = `
+        userInfoEl.innerHTML = `
           <div class="alert alert-danger">Authentication error: ${error.message}</div>
         `;
         return;
@@ -298,7 +317,7 @@
       
       if (!session) {
         console.log("No session found, redirecting to login");
-        document.getElementById('userInfo').innerHTML = `
+        userInfoEl.innerHTML = `
           <div class="alert alert-warning">You are not logged in. Redirecting to login page...</div>
         `;
         setTimeout(() => {
@@ -320,7 +339,7 @@
       
       if (profileError) {
         console.error("Profile fetch error:", profileError);
-        document.getElementById('userInfo').innerHTML = `
+        userInfoEl.innerHTML = `
           <div class="alert alert-danger">Error loading user data: ${profileError.message}</div>
         `;
         return;
@@ -330,7 +349,7 @@
         console.log("Profile loaded:", profile);
         userProfile = profile;
         // Display user info without exposing the UUID
-        document.getElementById('userInfo').innerHTML = `
+        userInfoEl.innerHTML = `
           <div class="card bg-light p-3">
             <h5 class="card-title">Student Information</h5>
             <p class="mb-1"><strong>Student Number:</strong> ${profile.student_number}</p>
@@ -340,7 +359,10 @@
         `;
         
         // Show the form once user is loaded
-        document.getElementById('queueForm').style.display = 'block';
+        const queueFormEl = document.getElementById('queueForm');
+        if (queueFormEl) {
+          queueFormEl.style.display = 'block';
+        }
         
         // Load now serving data
         loadNowServing();
@@ -355,15 +377,18 @@
         setupRefreshInterval();
       } else {
         console.log("No profile found");
-        document.getElementById('userInfo').innerHTML = `
+        userInfoEl.innerHTML = `
           <div class="alert alert-warning">User profile not found. Please complete your registration.</div>
         `;
       }
     } catch (err) {
       console.error("Unexpected error:", err);
-      document.getElementById('userInfo').innerHTML = `
-        <div class="alert alert-danger">Unexpected error: ${err.message}</div>
-      `;
+      const userInfoEl = document.getElementById('userInfo');
+      if (userInfoEl) {
+        userInfoEl.innerHTML = `
+          <div class="alert alert-danger">Unexpected error: ${err.message}</div>
+        `;
+      }
     }
   }
   
@@ -402,28 +427,38 @@
         })
       // Subscribe to now_serving table changes
       .on('postgres_changes',
-  { event: '*', schema: 'public', table: 'now_serving' },
-  payload => {
-    console.log('Now serving change detected:', payload);
-    updateNowServingDisplay(payload.new);
-  })
+        { event: '*', schema: 'public', table: 'now_serving' },
+        payload => {
+          console.log('Now serving change detected:', payload);
+          if (payload.new) {
+            updateNowServingDisplay(payload.new);
+          }
+        })
       .subscribe();
       
     console.log("Realtime subscription set up for entire page");
     
     // Add a connection status indicator
-    supabaseClient.channel('system').on('system', { event: 'disconnect' }, () => {
-      document.getElementById('refreshStatus').textContent = 'Connection lost. Reconnecting...';
-      document.getElementById('refreshSpinner').classList.add('active');
-    }).on('system', { event: 'reconnect' }, () => {
-      document.getElementById('refreshStatus').textContent = 'Real-time updates active';
-      setTimeout(() => {
-        document.getElementById('refreshSpinner').classList.remove('active');
-      }, 500);
-      // Refresh data after reconnection
-      loadNowServing();
-      loadUserQueueStatus();
-    }).subscribe();
+    const refreshStatusEl = document.getElementById('refreshStatus');
+    const refreshSpinnerEl = document.getElementById('refreshSpinner');
+    
+    if (refreshStatusEl && refreshSpinnerEl) {
+      supabaseClient.channel('system')
+        .on('system', { event: 'disconnect' }, () => {
+          refreshStatusEl.textContent = 'Connection lost. Reconnecting...';
+          refreshSpinnerEl.classList.add('active');
+        })
+        .on('system', { event: 'reconnect' }, () => {
+          refreshStatusEl.textContent = 'Real-time updates active';
+          setTimeout(() => {
+            refreshSpinnerEl.classList.remove('active');
+          }, 500);
+          // Refresh data after reconnection
+          loadNowServing();
+          loadUserQueueStatus();
+        })
+        .subscribe();
+    }
   }
   
   // Set up fallback refresh interval
@@ -433,21 +468,32 @@
       clearInterval(refreshInterval);
     }
     
+    const refreshSpinnerEl = document.getElementById('refreshSpinner');
+    const refreshStatusEl = document.getElementById('refreshStatus');
+    
     // Set up a 10-second refresh interval for the entire page data
     refreshInterval = setInterval(async () => {
       console.log("Refreshing all page data...");
-      document.getElementById('refreshSpinner').classList.add('active');
+      if (refreshSpinnerEl) {
+        refreshSpinnerEl.classList.add('active');
+      }
+      
       await Promise.all([
         loadNowServing(),
         loadUserQueueStatus()
       ]);
-      setTimeout(() => {
-        document.getElementById('refreshSpinner').classList.remove('active');
-      }, 500);
+      
+      if (refreshSpinnerEl) {
+        setTimeout(() => {
+          refreshSpinnerEl.classList.remove('active');
+        }, 500);
+      }
     }, 10000); // 10 seconds
     
     // Update the refresh status text
-    document.getElementById('refreshStatus').textContent = 'Auto-refresh every 10s';
+    if (refreshStatusEl) {
+      refreshStatusEl.textContent = 'Auto-refresh every 10s';
+    }
   }
   
   async function loadNowServing() {
@@ -470,38 +516,52 @@
   }
   
   // Match the counter display logic from admin
-function updateNowServingDisplay(data) {
-  if (!data) return;
+  function updateNowServingDisplay(data) {
+    if (!data) return;
 
-  // Store current values before updating
-  const current = {
-    counter_1: document.getElementById('counter1').textContent,
-    counter_2: document.getElementById('counter2').textContent,
-    counter_3: document.getElementById('counter3').textContent
-  };
+    const counter1El = document.getElementById('counter1');
+    const counter2El = document.getElementById('counter2');
+    const counter3El = document.getElementById('counter3');
+    
+    if (!counter1El || !counter2El || !counter3El) {
+      console.error('Counter elements not found');
+      return;
+    }
 
-  // Update display values
-  const newValues = {
-    counter_1: data.counter_1 > 0 ? data.counter_1 : '-',
-    counter_2: data.counter_2 > 0 ? data.counter_2 : '-',
-    counter_3: data.counter_3 > 0 ? data.counter_3 : '-'
-  };
+    // Store current values before updating
+    const current = {
+      counter_1: counter1El.textContent,
+      counter_2: counter2El.textContent,
+      counter_3: counter3El.textContent
+    };
 
-  document.getElementById('counter1').textContent = newValues.counter_1;
-  document.getElementById('counter2').textContent = newValues.counter_2;
-  document.getElementById('counter3').textContent = newValues.counter_3;
+    // Update display values
+    const newValues = {
+      counter_1: data.counter_1 > 0 ? data.counter_1 : '-',
+      counter_2: data.counter_2 > 0 ? data.counter_2 : '-',
+      counter_3: data.counter_3 > 0 ? data.counter_3 : '-'
+    };
 
-  // Add visual indicators for changed values
-  if (current.counter_1 !== newValues.counter_1) flashUpdate('counterBox1');
-  if (current.counter_2 !== newValues.counter_2) flashUpdate('counterBox2');
-  if (current.counter_3 !== newValues.counter_3) flashUpdate('counterBox3');
+    counter1El.textContent = newValues.counter_1;
+    counter2El.textContent = newValues.counter_2;
+    counter3El.textContent = newValues.counter_3;
 
-  // Save for future comparisons
-  lastNowServing = data;
-}
+    // Add visual indicators for changed values
+    if (current.counter_1 !== newValues.counter_1) flashUpdate('counterBox1');
+    if (current.counter_2 !== newValues.counter_2) flashUpdate('counterBox2');
+    if (current.counter_3 !== newValues.counter_3) flashUpdate('counterBox3');
+
+    // Save for future comparisons
+    lastNowServing = data;
+  }
 
   function flashUpdate(elementId) {
     const element = document.getElementById(elementId);
+    if (!element) {
+      console.error(`Element with id "${elementId}" not found`);
+      return;
+    }
+    
     element.classList.remove('updated');
     
     // Force a reflow to ensure the animation plays again
@@ -525,43 +585,51 @@ function updateNowServingDisplay(data) {
       }
       
       const queueCardsEl = document.getElementById('queueCards');
+      const myQueueStatusEl = document.getElementById('myQueueStatus');
       
-      if (data.length === 0) {
-        document.getElementById('myQueueStatus').classList.add('d-none');
+      if (!queueCardsEl || !myQueueStatusEl) {
+        console.error('Queue elements not found');
         return;
       }
       
-      document.getElementById('myQueueStatus').classList.remove('d-none');
+      if (data.length === 0) {
+        myQueueStatusEl.classList.add('d-none');
+        return;
+      }
+      
+      myQueueStatusEl.classList.remove('d-none');
       queueCardsEl.innerHTML = '';
       
       data.forEach(queue => {
         let statusBadge;
         let statusClass;
         
-       // Add this case to the switch statement in loadUserQueueStatus function:
-// Update the status cases to match admin dashboard
-switch(queue.status) {
-  case 'waiting':
-    statusBadge = '<span class="badge bg-warning">Waiting</span>';
-    statusClass = 'status-waiting';
-    break;
-  case 'called':
-    statusBadge = '<span class="badge bg-success">Called</span>';
-    statusClass = 'status-called';
-    break;
-  case 'serving':
-    statusBadge = '<span class="badge bg-info">Being Served</span>';
-    statusClass = 'status-serving';
-    break;
-  case 'completed':
-    statusBadge = '<span class="badge bg-secondary">Completed</span>';
-    statusClass = 'status-completed';
-    break;
-  case 'cancelled':
-    statusBadge = '<span class="badge bg-danger">Cancelled</span>';
-    statusClass = 'status-cancelled';
-    break;
-}
+        // Update the status cases to match admin dashboard
+        switch(queue.status) {
+          case 'waiting':
+            statusBadge = '<span class="badge bg-warning">Waiting</span>';
+            statusClass = 'status-waiting';
+            break;
+          case 'called':
+            statusBadge = '<span class="badge bg-success">Called</span>';
+            statusClass = 'status-called';
+            break;
+          case 'serving':
+            statusBadge = '<span class="badge bg-info">Being Served</span>';
+            statusClass = 'status-serving';
+            break;
+          case 'completed':
+            statusBadge = '<span class="badge bg-secondary">Completed</span>';
+            statusClass = 'status-completed';
+            break;
+          case 'cancelled':
+            statusBadge = '<span class="badge bg-danger">Cancelled</span>';
+            statusClass = 'status-cancelled';
+            break;
+          default:
+            statusBadge = '<span class="badge bg-secondary">Unknown</span>';
+            statusClass = '';
+        }
         
         const card = document.createElement('div');
         card.className = `card mb-3 ${statusClass}`;
@@ -580,7 +648,7 @@ switch(queue.status) {
                 ${queue.counter ? `<p class="mb-1"><strong>Counter:</strong> ${queue.counter}</p>` : ''}
                 <div class="mt-2">
                   ${queue.status === 'waiting' ? 
-                    `<button class="btn btn-outline-danger btn-sm" onclick="cancelQueue('${queue.id}')">Cancel</button>` : ''}
+                    `<button class="btn btn-outline-danger btn-sm" onclick="cancelQueueItem('${queue.id}')">Cancel</button>` : ''}
                   ${queue.status === 'called' && !acknowledgedCalls.includes(queue.id) ? 
                     `<button class="btn btn-success btn-sm" onclick="showCalledNotification(${queue.queue_number}, ${queue.counter}, '${queue.id}')">View Call</button>` : ''}
                 </div>
@@ -602,448 +670,491 @@ switch(queue.status) {
     }
   }
   
+  // Make these functions available globally
+  window.cancelQueueItem = async function(queueId) {
+    await cancelQueue(queueId);
+  };
+  
+  window.showCalledNotification = function(queueNumber, counter, queueId) {
+    showCalledNotificationFn(queueNumber, counter, queueId);
+  };
+  
   async function cancelQueue(queueId) {
-  if (!confirm('Are you sure you want to cancel this queue number?')) return;
+    if (!confirm('Are you sure you want to cancel this queue number?')) return;
 
-  try {
-    // 1. Get queue details (to check counter and queue number)
-    const { data: queue, error: fetchError } = await supabaseClient
-      .from('queues')
-      .select('counter, queue_number')
-      .eq('id', queueId)
-      .single();
-
-    if (fetchError) throw fetchError;
-
-    // 2. Update queue status
-    const { error: updateError } = await supabaseClient
-      .from('queues')
-      .update({ status: 'cancelled' })
-      .eq('id', queueId);
-
-    if (updateError) throw updateError;
-
-    // 3. Clear now_serving if this queue was being served
-    if (queue.counter) {
-      const counterField = `counter_${queue.counter}`;
-      
-      // Get the current now_serving data first
-      const { data: nowServing, error: servingError } = await supabaseClient
-        .from('now_serving')
-        .select('*')
-        .eq('id', 1)
+    try {
+      // 1. Get queue details (to check counter and queue number)
+      const { data: queue, error: fetchError } = await supabaseClient
+        .from('queues')
+        .select('counter, queue_number')
+        .eq('id', queueId)
         .single();
 
-      if (servingError) {
-        console.error('Error checking now_serving:', servingError);
-      } else if (nowServing && nowServing[counterField] === queue.queue_number) {
-        // Only clear the counter if it's showing this queue's number
-        const updateData = {};
-        updateData[counterField] = 0;  // Set to 0 (not null) to match DB structure
-        
-        const { error: updateServingError } = await supabaseClient
-          .from('now_serving')
-          .update(updateData)
-          .eq('id', 1);
-          
-        if (updateServingError) {
-          console.error('Error updating now serving:', updateServingError);
-        }
-      }
-    }
+      if (fetchError) throw fetchError;
 
-    showMessage('success', 'Queue cancelled successfully');
-    loadUserQueueStatus();
-    loadNowServing(); // Refresh counters
-  } catch (error) {
-    showMessage('danger', `Cancellation failed: ${error.message}`);
-  }
-}
+      // 2. Update queue status
+      const { error: updateError } = await supabaseClient
+        .from('queues')
+        .update({ status: 'cancelled' })
+        .eq('id', queueId);
 
+      if (updateError) throw updateError;
 
-function showCalledNotification(queueNumber, counter, queueId) {
-  // Update notification content
-
-  if (currentlyCalledQueueId === queueId && timerInterval) {
-    // Already showing this queue's notification, don't restart timer
-    return;
-  }
-
-  document.getElementById('calledNumber').textContent = queueNumber;
-  document.getElementById('counterNumber').textContent = `Counter ${counter}`;
-  
-  // Show notification modal
-  document.getElementById('modalBackdrop').style.display = 'block';
-  document.getElementById('notificationModal').style.display = 'block';
-  
-  // Store current queue ID
-  currentlyCalledQueueId = queueId;
-  
-  // Reset and start timer
-  secondsLeft = 300; // 5 minutes
-  document.getElementById('timerSeconds').textContent = secondsLeft;
-  document.getElementById('timerProgress').style.width = '100%';
-  document.getElementById('timerProgress').className = 'progress-bar timer-progress';
-  
-  // Clear any existing timer
-  if (timerInterval) {
-    clearInterval(timerInterval);
-    timerInterval = null;
-  }
-  
-  // Start countdown
-  timerInterval = setInterval(() => {
-    secondsLeft--;
-    document.getElementById('timerSeconds').textContent = secondsLeft;
-    const percentage = (secondsLeft / 300) * 100;
-    document.getElementById('timerProgress').style.width = `${percentage}%`;
-    
-    // Change progress bar color as time decreases
-    if (secondsLeft <= 60) {
-      document.getElementById('timerProgress').className = 'progress-bar timer-progress bg-danger';
-    } else if (secondsLeft <= 120) {
-      document.getElementById('timerProgress').className = 'progress-bar timer-progress bg-warning';
-    }
-    
-    if (secondsLeft <= 0) {
-  clearInterval(timerInterval);
-  timerInterval = null;
-  autoCancel(currentlyCalledQueueId); // Let autoCancel handle hiding the modal
-}
-
-  }, 1000);
-}
-
-function hideNotification() {
-  document.getElementById('modalBackdrop').style.display = 'none';
-  document.getElementById('notificationModal').style.display = 'none';
-  
-  // Don't clear the timer here to ensure autoCancel still works
-  // but make sure we stop the countdown to prevent multiple cancellations
-  if (timerInterval) {
-    clearInterval(timerInterval);
-    timerInterval = null;
-  }
-}
-  
-// Find the autoCancel function in your code and replace it with this fixed version
-async function autoCancel(queueId) {
-  // Use the passed queueId instead of relying on the global variable
-  // This ensures we're cancelling the right queue even if the global variable changed
-  if (!queueId) return;
-  
-  try {
-    console.log(`Auto-cancelling queue ${queueId} after timeout`);
-    
-    // Get queue details first
-    const { data: queueDetails, error: fetchError } = await supabaseClient
-      .from('queues')
-      .select('counter, queue_number, status')
-      .eq('id', queueId)
-      .single();
-      
-    if (fetchError) {
-      console.error('Error fetching queue details:', fetchError);
-      return;
-    }
-    
-    // Only proceed if the queue is still in 'called' status
-    if (queueDetails.status !== 'called') {
-      console.log('Queue is no longer in called status, skipping auto-cancel');
-      return;
-    }
-    
-    // Update queue status
-    const { error } = await supabaseClient
-      .from('queues')
-      .update({ status: 'cancelled' })
-      .eq('id', queueId);
-      
-    if (error) {
-      console.error('Error auto-cancelling queue:', error);
-    } else {
-      showMessage('warning', 'Your queue number was automatically cancelled because you did not respond in time.');
-      
-      // Update now_serving if needed
-      if (queueDetails.counter) {
-        const counterField = `counter_${queueDetails.counter}`;
+      // 3. Clear now_serving if this queue was being served
+      if (queue.counter) {
+        const counterField = `counter_${queue.counter}`;
         
         // Get the current now_serving data first
-        const { data: nowServing, error: nowServingError } = await supabaseClient
+        const { data: nowServing, error: servingError } = await supabaseClient
           .from('now_serving')
           .select('*')
           .eq('id', 1)
           .single();
-          
-        if (nowServingError) {
-          console.error('Error checking now_serving:', nowServingError);
-        } else if (nowServing && nowServing[counterField] === queueDetails.queue_number) {
-          // Clear the counter in now_serving
+
+        if (servingError) {
+          console.error('Error checking now_serving:', servingError);
+        } else if (nowServing && nowServing[counterField] === queue.queue_number) {
+          // Only clear the counter if it's showing this queue's number
           const updateData = {};
-          updateData[counterField] = 0; // Set to 0 (not null) to match DB structure
+          updateData[counterField] = 0;  // Set to 0 (not null) to match DB structure
           
-          const { error: updateError } = await supabaseClient
+          const { error: updateServingError } = await supabaseClient
             .from('now_serving')
             .update(updateData)
             .eq('id', 1);
             
-          if (updateError) {
-            console.error('Error updating now serving:', updateError);
+          if (updateServingError) {
+            console.error('Error updating now serving:', updateServingError);
           }
         }
       }
-    }
-    
-    // Clear the global variable only if it matches the queue we just processed
-    if (currentlyCalledQueueId === queueId) {
-      currentlyCalledQueueId = null;
-    }
-    
-    // Mark this call as acknowledged in localStorage to prevent showing it again
-    if (!acknowledgedCalls.includes(queueId)) {
-      acknowledgedCalls.push(queueId);
-      localStorage.setItem('acknowledgedCalls', JSON.stringify(acknowledgedCalls));
-    }
-    
-    loadUserQueueStatus();
-    loadNowServing(); // Refresh the display
 
-    hideNotification();
-    
-  } catch (error) {
-    console.error('Error in auto-cancel:', error);
-  }
-}
-
-  
- // Queue form submission
-document.getElementById('queueForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  
-  const purpose = document.getElementById('purpose').value;
-  
-  if (!userId) {
-    showMessage('danger', 'You need to be logged in to get a queue number.');
-    return;
-  }
-  
-  try {
-    // Show loading state
-    showMessage('info', 'Processing your request...');
-    
-    // Check if user already has an active queue (waiting, called, or serving status)
-const { data: activeQueues, error: activeError } = await supabaseClient
-  .from('queues')
-  .select('*')
-  .eq('user_id', userId)
-  .in('status', ['waiting', 'called', 'serving'])
-  .order('created_at', { ascending: false });
-
-// And update the message:
-if (activeQueues && activeQueues.length > 0) {
-  const activeQueue = activeQueues[0];
-  let statusMessage;
-  
-  switch(activeQueue.status) {
-    case 'waiting':
-      statusMessage = 'You are already in the waiting queue.';
-      break;
-    case 'called':
-      statusMessage = 'You have been called to a counter.';
-      break;
-    case 'serving':
-      statusMessage = 'You are currently being served at a counter.';
-      break;
-  }
-  
-  showMessage('warning', `
-    <h4 class="alert-heading">Cannot Create New Queue Number</h4>
-    <p>${statusMessage}</p>
-    <p>Queue #${activeQueue.queue_number} for <strong>${activeQueue.purpose}</strong> is still active.</p>
-    <p class="mb-0">Please complete or cancel your current queue before getting a new number.</p>
-  `);
-  return;
-}
-    
-    // Call the database function to get the next queue number
-    // This function handles the daily reset at midnight Philippines time
-    const { data: sequenceResult, error: sequenceError } = await supabaseClient
-  .rpc('get_next_queue_number');
-    
-    if (sequenceError) throw sequenceError;
-    
-    const nextNumber = sequenceResult;
-    
-    // Get current Philippine date for display purposes
-    const options = { 
-      timeZone: 'Asia/Manila',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    };
-    const philippineDate = new Date().toLocaleDateString('en-US', options);
-    
-    // Insert new queue entry with the safely generated number
-    const { error: insertError } = await supabaseClient
-      .from('queues')
-      .insert({
-        user_id: userId,
-        queue_number: nextNumber,
-        purpose: purpose,
-        status: 'waiting'
-      });
-    
-    if (insertError) throw insertError;
-    
-    showMessage('success', `
-      <h4 class="alert-heading">Success!</h4>
-      <p>Your queue number is <strong>${nextNumber}</strong> for <strong>${purpose}</strong>.</p>
-      <p class="mb-0">Date: ${philippineDate} (PH time)</p>
-      <p class="mb-0">Please wait for your number to be called.</p>
-    `);
-    document.getElementById('queueForm').reset();
-    
-    // Reload user queue status
-    loadUserQueueStatus();
-    
-  } catch (error) {
-    showMessage('danger', `Error: ${error.message}`);
-  }
-});
-  
-  // Accept button click handler
-document.getElementById('acceptBtn').addEventListener('click', async () => {
-  if (!currentlyCalledQueueId) return;
-  
-  try {
-    // Mark this call as acknowledged in localStorage
-    acknowledgedCalls.push(currentlyCalledQueueId);
-    localStorage.setItem('acknowledgedCalls', JSON.stringify(acknowledgedCalls));
-    
-    // Update the queue status to "serving" instead of "completed"
-    const { error: updateError } = await supabaseClient
-      .from('queues')
-      .update({ status: 'serving' })
-      .eq('id', currentlyCalledQueueId);
-      
-    if (updateError) {
-      throw new Error(updateError.message);
+      showMessage('success', 'Queue cancelled successfully');
+      loadUserQueueStatus();
+      loadNowServing(); // Refresh counters
+    } catch (error) {
+      showMessage('danger', `Cancellation failed: ${error.message}`);
     }
-    
-    // NOTE: We're not clearing the counter in now_serving since the user is now being served
-    // The counter should continue to display the queue number while they're being served
-    
-    hideNotification();
-    showMessage('success', 'You have accepted the call. Please proceed to the counter.');
-    
-    // Reload user queue status to update UI
-    loadUserQueueStatus();
-    
-    currentlyCalledQueueId = null;
-  } catch (error) {
-    showMessage('danger', `Error accepting call: ${error.message}`);
   }
-});
-  document.getElementById('cancelBtn').addEventListener('click', async () => {
-  if (!currentlyCalledQueueId) return;
-  
-  try {
-    // Get queue details first for the counter information
-    const { data: queueDetails, error: fetchError } = await supabaseClient
-      .from('queues')
-      .select('counter, queue_number')
-      .eq('id', currentlyCalledQueueId)
-      .single();
-      
-    if (fetchError) {
-      console.error('Error fetching queue details:', fetchError);
+
+  function showCalledNotificationFn(queueNumber, counter, queueId) {
+    // Update notification content
+    const calledNumberEl = document.getElementById('calledNumber');
+    const counterNumberEl = document.getElementById('counterNumber');
+    const modalBackdropEl = document.getElementById('modalBackdrop');
+    const notificationModalEl = document.getElementById('notificationModal');
+    const timerSecondsEl = document.getElementById('timerSeconds');
+    const timerProgressEl = document.getElementById('timerProgress');
+    
+    if (!calledNumberEl || !counterNumberEl || !modalBackdropEl || 
+        !notificationModalEl || !timerSecondsEl || !timerProgressEl) {
+      console.error('Notification elements not found');
       return;
     }
+
+    if (currentlyCalledQueueId === queueId && timerInterval) {
+      // Already showing this queue's notification, don't restart timer
+      return;
+    }
+
+    calledNumberEl.textContent = queueNumber;
+    counterNumberEl.textContent = `Counter ${counter}`;
     
-    // Update queue status
-    const { error } = await supabaseClient
-      .from('queues')
-      .update({ status: 'cancelled' })
-      .eq('id', currentlyCalledQueueId);
-      
-    if (error) {
-      throw error;
+    // Show notification modal
+    modalBackdropEl.style.display = 'block';
+    notificationModalEl.style.display = 'block';
+    
+    // Store current queue ID
+    currentlyCalledQueueId = queueId;
+    
+    // Reset and start timer
+    secondsLeft = 300; // 5 minutes
+    timerSecondsEl.textContent = secondsLeft;
+    timerProgressEl.style.width = '100%';
+    timerProgressEl.className = 'progress-bar timer-progress';
+    
+    // Clear any existing timer
+    if (timerInterval) {
+      clearInterval(timerInterval);
+      timerInterval = null;
     }
     
-    // Update now_serving if needed
-    if (queueDetails.counter) {
-      const counterField = `counter_${queueDetails.counter}`;
+    // Start countdown
+    timerInterval = setInterval(() => {
+      secondsLeft--;
+      timerSecondsEl.textContent = secondsLeft;
+      const percentage = (secondsLeft / 300) * 100;
+      timerProgressEl.style.width = `${percentage}%`;
       
-      // Get the current now_serving data first
-      const { data: nowServing, error: nowServingError } = await supabaseClient
-        .from('now_serving')
-        .select('*')
-        .eq('id', 1)
+      // Change progress bar color as time decreases
+      if (secondsLeft <= 60) {
+        timerProgressEl.className = 'progress-bar timer-progress bg-danger';
+      } else if (secondsLeft <= 120) {
+        timerProgressEl.className = 'progress-bar timer-progress bg-warning';
+      }
+      
+      if (secondsLeft <= 0) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+        autoCancel(currentlyCalledQueueId); // Let autoCancel handle hiding the modal
+      }
+    }, 1000);
+  }
+
+  window.hideNotification = function() {
+    hideNotificationFn();
+  };
+
+  function hideNotificationFn() {
+    const modalBackdropEl = document.getElementById('modalBackdrop');
+    const notificationModalEl = document.getElementById('notificationModal');
+    
+    if (modalBackdropEl && notificationModalEl) {
+      modalBackdropEl.style.display = 'none';
+      notificationModalEl.style.display = 'none';
+    }
+    
+    // Don't clear the timer here to ensure autoCancel still works
+    // but make sure we stop the countdown to prevent multiple cancellations
+    if (timerInterval) {
+      clearInterval(timerInterval);
+      timerInterval = null;
+    }
+  }
+  
+  async function autoCancel(queueId) {
+    // Use the passed queueId instead of relying on the global variable
+    // This ensures we're cancelling the right queue even if the global variable changed
+    if (!queueId) return;
+    
+    try {
+      console.log(`Auto-cancelling queue ${queueId} after timeout`);
+      
+      // Get queue details first
+      const { data: queueDetails, error: fetchError } = await supabaseClient
+        .from('queues')
+        .select('counter, queue_number, status')
+        .eq('id', queueId)
         .single();
         
-      if (nowServingError) {
-        console.error('Error checking now_serving:', nowServingError);
-      } else if (nowServing && nowServing[counterField] === queueDetails.queue_number) {
-        // Clear the counter in now_serving
-        const updateData = {};
-        updateData[counterField] = 0; // Set to 0 (not null) to match DB structure
+      if (fetchError) {
+        console.error('Error fetching queue details:', fetchError);
+        return;
+      }
+      
+      // Only proceed if the queue is still in 'called' status
+      if (queueDetails.status !== 'called') {
+        console.log('Queue is no longer in called status, skipping auto-cancel');
+        return;
+      }
+      
+      // Update queue status
+      const { error } = await supabaseClient
+        .from('queues')
+        .update({ status: 'cancelled' })
+        .eq('id', queueId);
         
-        const { error: updateError } = await supabaseClient
-          .from('now_serving')
-          .update(updateData)
-          .eq('id', 1);
+      if (error) {
+        console.error('Error auto-cancelling queue:', error);
+      } else {
+        showMessage('warning', 'Your queue number was automatically cancelled because you did not respond in time.');
+        
+        // Update now_serving if needed
+        if (queueDetails.counter) {
+          const counterField = `counter_${queueDetails.counter}`;
           
-        if (updateError) {
-          console.error('Error updating now serving:', updateError);
+          // Get the current now_serving data first
+          const { data: nowServing, error: nowServingError } = await supabaseClient
+            .from('now_serving')
+            .select('*')
+            .eq('id', 1)
+            .single();
+            
+          if (nowServingError) {
+            console.error('Error checking now_serving:', nowServingError);
+          } else if (nowServing && nowServing[counterField] === queueDetails.queue_number) {
+            // Clear the counter in now_serving
+            const updateData = {};
+            updateData[counterField] = 0; // Set to 0 (not null) to match DB structure
+            
+            const { error: updateError } = await supabaseClient
+              .from('now_serving')
+              .update(updateData)
+              .eq('id', 1);
+              
+            if (updateError) {
+              console.error('Error updating now serving:', updateError);
+            }
+          }
         }
       }
-    }
-    
-    // Mark this call as acknowledged in localStorage
-    acknowledgedCalls.push(currentlyCalledQueueId);
-    localStorage.setItem('acknowledgedCalls', JSON.stringify(acknowledgedCalls));
-    
-    hideNotification();
-    showMessage('info', 'You have cancelled your queue number.');
-    currentlyCalledQueueId = null;
-    loadUserQueueStatus();
-    loadNowServing(); // Refresh the display
-  } catch (error) {
-    showMessage('danger', `Error cancelling: ${error.message}`);
-  }
-});
-
-  
-  // Add logout functionality
-  document.getElementById('logoutBtn').addEventListener('click', async () => {
-    try {
-      // Show logging out message
-      showMessage('info', 'Logging out...');
       
-      // Sign out from Supabase
-      const { error } = await supabaseClient.auth.signOut();
-      
-      if (error) {
-        throw error;
+      // Clear the global variable only if it matches the queue we just processed
+      if (currentlyCalledQueueId === queueId) {
+        currentlyCalledQueueId = null;
       }
       
-     // Show success message briefly before redirecting
-     showMessage('success', 'You have been logged out successfully. Redirecting to login page...');
+      // Mark this call as acknowledged in localStorage to prevent showing it again
+      if (!acknowledgedCalls.includes(queueId)) {
+        acknowledgedCalls.push(queueId);
+        localStorage.setItem('acknowledgedCalls', JSON.stringify(acknowledgedCalls));
+      }
       
-      // Redirect to login page after a short delay
-      setTimeout(() => {
-        window.location.href = '/login.html';
-      }, 1500);
+      loadUserQueueStatus();
+      loadNowServing(); // Refresh the display
+
+      hideNotificationFn();
+      
     } catch (error) {
-      showMessage('danger', `Error during logout: ${error.message}`);
+      console.error('Error in auto-cancel:', error);
     }
-  });
+  }
+  
+  // Add queue form submission
+  const queueFormEl = document.getElementById('queueForm');
+  if (queueFormEl) {
+    queueFormEl.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const purposeEl = document.getElementById('purpose');
+      if (!purposeEl) {
+        showMessage('danger', 'Form element not found');
+        return;
+      }
+      
+      const purpose = purposeEl.value;
+      
+      if (!userId) {
+        showMessage('danger', 'You need to be logged in to get a queue number.');
+        return;
+      }
+      
+      try {
+        // Show loading state
+        showMessage('info', 'Processing your request...');
+        
+        // Check if user already has an active queue (waiting, called, or serving status)
+        const { data: activeQueues, error: activeError } = await supabaseClient
+          .from('queues')
+          .select('*')
+          .eq('user_id', userId)
+          .in('status', ['waiting', 'called', 'serving'])
+          .order('created_at', { ascending: false });
+
+        // And update the message:
+        if (activeQueues && activeQueues.length > 0) {
+          const activeQueue = activeQueues[0];
+          let statusMessage;
+          
+          switch(activeQueue.status) {
+            case 'waiting':
+              statusMessage = 'You are already in the waiting queue.';
+              break;
+            case 'called':
+              statusMessage = 'You have been called to a counter.';
+              break;
+            case 'serving':
+              statusMessage = 'You are currently being served at a counter.';
+              break;
+          }
+          
+          showMessage('warning', `
+            <h4 class="alert-heading">Cannot Create New Queue Number</h4>
+            <p>${statusMessage}</p>
+            <p>Queue #${activeQueue.queue_number} for <strong>${activeQueue.purpose}</strong> is still active.</p>
+            <p class="mb-0">Please complete or cancel your current queue before getting a new number.</p>
+          `);
+          return;
+        }
+        
+        // Call the database function to get the next queue number
+        // This function handles the daily reset at midnight Philippines time
+        const { data: sequenceResult, error: sequenceError } = await supabaseClient
+          .rpc('get_next_queue_number');
+        
+        if (sequenceError) throw sequenceError;
+        
+        const nextNumber = sequenceResult;
+        
+        // Get current Philippine date for display purposes
+        const options = { 
+          timeZone: 'Asia/Manila',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        };
+        const philippineDate = new Date().toLocaleDateString('en-US', options);
+        
+        // Insert new queue entry with the safely generated number
+        const { error: insertError } = await supabaseClient
+          .from('queues')
+          .insert({
+            user_id: userId,
+            queue_number: nextNumber,
+            purpose: purpose,
+            status: 'waiting'
+          });
+        
+        if (insertError) throw insertError;
+        
+        showMessage('success', `
+          <h4 class="alert-heading">Success!</h4>
+          <p>Your queue number is <strong>${nextNumber}</strong> for <strong>${purpose}</strong>.</p>
+          <p class="mb-0">Date: ${philippineDate} (PH time)</p>
+          <p class="mb-0">Please wait for your number to be called.</p>
+        `);
+        queueFormEl.reset();
+        
+        // Reload user queue status
+        loadUserQueueStatus();
+        
+      } catch (error) {
+        showMessage('danger', `Error: ${error.message}`);
+      }
+    });
+  }
+  
+  // Accept button click handler
+  const acceptBtnEl = document.getElementById('acceptBtn');
+  if (acceptBtnEl) {
+    acceptBtnEl.addEventListener('click', async () => {
+      if (!currentlyCalledQueueId) return;
+      
+      try {
+        // Mark this call as acknowledged in localStorage
+        acknowledgedCalls.push(currentlyCalledQueueId);
+        localStorage.setItem('acknowledgedCalls', JSON.stringify(acknowledgedCalls));
+        
+        // Update the queue status to "serving" instead of "completed"
+        const { error: updateError } = await supabaseClient
+          .from('queues')
+          .update({ status: 'serving' })
+          .eq('id', currentlyCalledQueueId);
+          
+        if (updateError) {
+          throw new Error(updateError.message);
+        }
+        
+        // NOTE: We're not clearing the counter in now_serving since the user is now being served
+        // The counter should continue to display the queue number while they're being served
+        
+        hideNotificationFn();
+        showMessage('success', 'You have accepted the call. Please proceed to the counter.');
+        
+        // Reload user queue status to update UI
+        loadUserQueueStatus();
+        
+        currentlyCalledQueueId = null;
+      } catch (error) {
+        showMessage('danger', `Error accepting call: ${error.message}`);
+      }
+    });
+  }
+  
+  // Cancel button click handler
+  const cancelBtnEl = document.getElementById('cancelBtn');
+  if (cancelBtnEl) {
+    cancelBtnEl.addEventListener('click', async () => {
+      if (!currentlyCalledQueueId) return;
+      
+      try {
+        // Get queue details first for the counter information
+        const { data: queueDetails, error: fetchError } = await supabaseClient
+          .from('queues')
+          .select('counter, queue_number')
+          .eq('id', currentlyCalledQueueId)
+          .single();
+          
+        if (fetchError) {
+          console.error('Error fetching queue details:', fetchError);
+          return;
+        }
+        
+       // Update queue status
+        const { error } = await supabaseClient
+          .from('queues')
+          .update({ status: 'cancelled' })
+          .eq('id', currentlyCalledQueueId);
+          
+        if (error) {
+          throw error;
+        }
+        
+        // Update now_serving if needed
+        if (queueDetails.counter) {
+          const counterField = `counter_${queueDetails.counter}`;
+          
+          // Get the current now_serving data first
+          const { data: nowServing, error: nowServingError } = await supabaseClient
+            .from('now_serving')
+            .select('*')
+            .eq('id', 1)
+            .single();
+            
+          if (nowServingError) {
+            console.error('Error checking now_serving:', nowServingError);
+          } else if (nowServing && nowServing[counterField] === queueDetails.queue_number) {
+            // Clear the counter in now_serving
+            const updateData = {};
+            updateData[counterField] = 0; // Set to 0 (not null) to match DB structure
+            
+            const { error: updateError } = await supabaseClient
+              .from('now_serving')
+              .update(updateData)
+              .eq('id', 1);
+              
+            if (updateError) {
+              console.error('Error updating now serving:', updateError);
+            }
+          }
+        }
+        
+        // Mark this call as acknowledged in localStorage
+        acknowledgedCalls.push(currentlyCalledQueueId);
+        localStorage.setItem('acknowledgedCalls', JSON.stringify(acknowledgedCalls));
+        
+        hideNotificationFn();
+        showMessage('info', 'You have cancelled your queue number.');
+        currentlyCalledQueueId = null;
+        loadUserQueueStatus();
+        loadNowServing(); // Refresh the display
+      } catch (error) {
+        showMessage('danger', `Error cancelling: ${error.message}`);
+      }
+    });
+  }
+  
+  // Add logout functionality
+  const logoutBtnEl = document.getElementById('logoutBtn');
+  if (logoutBtnEl) {
+    logoutBtnEl.addEventListener('click', async () => {
+      try {
+        // Show logging out message
+        showMessage('info', 'Logging out...');
+        
+        // Sign out from Supabase
+        const { error } = await supabaseClient.auth.signOut();
+        
+        if (error) {
+          throw error;
+        }
+        
+        // Show success message briefly before redirecting
+        showMessage('success', 'You have been logged out successfully. Redirecting to login page...');
+        
+        // Redirect to login page after a short delay
+        setTimeout(() => {
+          window.location.href = '/login.html';
+        }, 1500);
+      } catch (error) {
+        showMessage('danger', `Error during logout: ${error.message}`);
+      }
+    });
+  }
   
   // Load user on page load
-  document.addEventListener('DOMContentLoaded', () => {
-    loadUser();
-  });
-
+  loadUser();
+  
   // Clean up resources when page is unloaded
   window.addEventListener('beforeunload', () => {
     // Clear any intervals
@@ -1059,6 +1170,9 @@ document.getElementById('acceptBtn').addEventListener('click', async () => {
       supabaseClient.removeChannel(realtime);
     }
   });
+});
+
+              
 </script>
 </body>
 </html>
