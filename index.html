@@ -812,57 +812,83 @@ async function autoCancel(queueId) {
 
   
   // Queue form submission
-  document.getElementById('queueForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
+document.getElementById('queueForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  
+  const purpose = document.getElementById('purpose').value;
+  
+  if (!userId) {
+    showMessage('danger', 'You need to be logged in to get a queue number.');
+    return;
+  }
+  
+  try {
+    // Show loading state
+    showMessage('info', 'Processing your request...');
     
-    const purpose = document.getElementById('purpose').value;
+    // Check if user already has an active queue (waiting or called status)
+    const { data: activeQueues, error: activeError } = await supabaseClient
+      .from('queues')
+      .select('*')
+      .eq('user_id', userId)
+      .in('status', ['waiting', 'called'])
+      .order('created_at', { ascending: false });
     
-    if (!userId) {
-      showMessage('danger', 'You need to be logged in to get a queue number.');
+    if (activeError) throw activeError;
+    
+    // If user already has an active queue, prevent creating a new one
+    if (activeQueues && activeQueues.length > 0) {
+      const activeQueue = activeQueues[0];
+      let statusMessage = activeQueue.status === 'waiting' ? 
+        'You are already in the waiting queue.' : 
+        'You have been called to a counter.';
+      
+      showMessage('warning', `
+        <h4 class="alert-heading">Cannot Create New Queue Number</h4>
+        <p>${statusMessage}</p>
+        <p>Queue #${activeQueue.queue_number} for <strong>${activeQueue.purpose}</strong> is still active.</p>
+        <p class="mb-0">Please complete or cancel your current queue before getting a new number.</p>
+      `);
       return;
     }
     
-    try {
-      // Show loading state
-      showMessage('info', 'Processing your request...');
-      
-      // Get the next queue number
-      const { data: existing, error: queryError } = await supabaseClient
-        .from('queues')
-        .select('queue_number')
-        .order('queue_number', { ascending: false })
-        .limit(1);
-      
-      if (queryError) throw queryError;
-      
-      const nextNumber = existing && existing.length ? existing[0].queue_number + 1 : 1;
-      
-      // Insert new queue entry
-      const { error: insertError } = await supabaseClient
-        .from('queues')
-        .insert({
-          user_id: userId,
-          queue_number: nextNumber,
-          purpose: purpose,
-          status: 'waiting'
-        });
-      
-      if (insertError) throw insertError;
-      
-      showMessage('success', `
-        <h4 class="alert-heading">Success!</h4>
-        <p>Your queue number is <strong>${nextNumber}</strong> for <strong>${purpose}</strong>.</p>
-        <p class="mb-0">Please wait for your number to be called.</p>
-      `);
-      document.getElementById('queueForm').reset();
-      
-      // Reload user queue status
-      loadUserQueueStatus();
-      
-    } catch (error) {
-      showMessage('danger', `Error: ${error.message}`);
-    }
-  });
+    // Get the next queue number
+    const { data: existing, error: queryError } = await supabaseClient
+      .from('queues')
+      .select('queue_number')
+      .order('queue_number', { ascending: false })
+      .limit(1);
+    
+    if (queryError) throw queryError;
+    
+    const nextNumber = existing && existing.length ? existing[0].queue_number + 1 : 1;
+    
+    // Insert new queue entry
+    const { error: insertError } = await supabaseClient
+      .from('queues')
+      .insert({
+        user_id: userId,
+        queue_number: nextNumber,
+        purpose: purpose,
+        status: 'waiting'
+      });
+    
+    if (insertError) throw insertError;
+    
+    showMessage('success', `
+      <h4 class="alert-heading">Success!</h4>
+      <p>Your queue number is <strong>${nextNumber}</strong> for <strong>${purpose}</strong>.</p>
+      <p class="mb-0">Please wait for your number to be called.</p>
+    `);
+    document.getElementById('queueForm').reset();
+    
+    // Reload user queue status
+    loadUserQueueStatus();
+    
+  } catch (error) {
+    showMessage('danger', `Error: ${error.message}`);
+  }
+});
   
   // Accept button click handler
   document.getElementById('acceptBtn').addEventListener('click', async () => {
