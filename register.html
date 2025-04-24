@@ -97,6 +97,22 @@
         margin-bottom: 0.75rem !important;
       }
     }
+    
+    /* Validation styles */
+    .is-invalid {
+      border-color: #dc3545 !important;
+    }
+    .invalid-feedback {
+      display: none;
+      width: 100%;
+      margin-top: 0.25rem;
+      font-size: 0.875em;
+      color: #dc3545;
+    }
+    .was-validated .form-control:invalid ~ .invalid-feedback,
+    .form-control.is-invalid ~ .invalid-feedback {
+      display: block;
+    }
   </style>
 </head>
 <body>
@@ -105,27 +121,45 @@
   <div class="card p-4 shadow">
     <h2 class="mb-4">Student Registration</h2>
     
-    <form id="registerForm">
+    <form id="registerForm" class="needs-validation" novalidate>
       <div class="mb-3">
         <label for="email" class="form-label">Email</label>
         <input type="email" class="form-control" id="email" required>
+        <div class="invalid-feedback">Please provide a valid email address.</div>
       </div>
       
       <div class="mb-3">
         <label for="password" class="form-label">Password</label>
-        <input type="password" class="form-control" id="password" required>
+        <input type="password" class="form-control" id="password" required
+               pattern="^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$">
+        <div class="form-text">
+          Password must contain:
+          <ul>
+            <li>At least 8 characters</li>
+            <li>At least 1 uppercase letter</li>
+            <li>At least 1 lowercase letter</li>
+            <li>At least 1 number</li>
+            <li>At least 1 special character (@$!%*?&)</li>
+          </ul>
+        </div>
+        <div class="invalid-feedback">Password must meet all the requirements.</div>
       </div>
       
       <div class="mb-3">
         <label for="studentNumber" class="form-label">Student Number</label>
-        <input type="text" class="form-control" id="studentNumber" required pattern="\d{4}-\d{2}-\d{5}">
+        <input type="text" class="form-control" id="studentNumber" required 
+               pattern="^\d{4}-(0[1-9]|1[0-2])-\d{5}$"
+               oninput="this.value = this.value.replace(/[^0-9-]/g, ''); 
+                        if (this.value.length > 12) this.value = this.value.slice(0, 12);">
         <div class="form-text">Format: YYYY-MM-XXXXX (e.g. 2022-10-10767)</div>
+        <div class="invalid-feedback">Please enter a valid student number in format YYYY-MM-XXXXX (month must be 01-12).</div>
       </div>
       
       <div class="row">
         <div class="col-md-4 mb-3">
           <label for="firstName" class="form-label">First Name</label>
           <input type="text" class="form-control" id="firstName" required>
+          <div class="invalid-feedback">Please provide your first name.</div>
         </div>
         
         <div class="col-md-4 mb-3">
@@ -136,6 +170,7 @@
         <div class="col-md-4 mb-3">
           <label for="lastName" class="form-label">Last Name</label>
           <input type="text" class="form-control" id="lastName" required>
+          <div class="invalid-feedback">Please provide your last name.</div>
         </div>
       </div>
       
@@ -164,9 +199,29 @@
     document.getElementById('message').innerHTML = `<div class="alert alert-${type}">${text}</div>`;
   }
 
-  document.getElementById('registerForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
+  // Client-side form validation
+  (function() {
+    'use strict';
     
+    // Fetch the form we want to apply custom validation to
+    const form = document.getElementById('registerForm');
+    
+    form.addEventListener('submit', async function(event) {
+      event.preventDefault();
+      event.stopPropagation();
+      
+      // Check form validity
+      if (!form.checkValidity()) {
+        form.classList.add('was-validated');
+        return;
+      }
+      
+      // If form is valid, proceed with registration
+      await handleRegistration();
+    }, false);
+  })();
+
+  async function handleRegistration() {
     showMessage('info', 'Processing registration...');
     
     // Get form values
@@ -176,13 +231,6 @@
     const first_name = document.getElementById('firstName').value.trim();
     const middle_name = document.getElementById('middleName').value.trim();
     const last_name = document.getElementById('lastName').value.trim();
-    
-    // Validate student number format
-    const studentNumberPattern = /^\d{4}-\d{2}-\d{5}$/;
-    if (!studentNumberPattern.test(student_number)) {
-      showMessage('danger', 'Student number must be in the format YYYY-MM-XXXXX');
-      return;
-    }
     
     try {
       // Create authentication account AND sign in at the same time
@@ -234,6 +282,7 @@
         console.log('User profile created successfully');
         showMessage('success', 'Registered successfully! You can now use your account.');
         document.getElementById('registerForm').reset();
+        document.getElementById('registerForm').classList.remove('was-validated');
         
         // Optional: Redirect to a dashboard or home page
         // window.location.href = '/dashboard.html';
@@ -242,7 +291,7 @@
       console.error('Unexpected error:', unexpectedError);
       showMessage('danger', `An unexpected error occurred: ${unexpectedError.message}`);
     }
-  });
+  }
 </script>
 
 </body>
