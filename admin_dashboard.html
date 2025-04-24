@@ -129,7 +129,7 @@
   </div>
 
 <script>
-  // Initialize Supabase client
+ // Initialize Supabase client
 const SUPABASE_URL = 'https://mgxyeoikrddeugnpcrtu.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1neHllb2lrcmRkZXVnbnBjcnR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDUzOTg0MzksImV4cCI6MjA2MDk3NDQzOX0.Lz8tp7_xj7BQaCREeJAc_KifxcjbJN1cdixRiLEs_AU';
 
@@ -776,7 +776,8 @@ async function markStatus(queueId, status, counter, shouldReload = true) {
     return;
   }
   
-  if (shouldReload) {
+  const wasLoadingData = isLoadingData;
+  if (!wasLoadingData && shouldReload) {
     isLoadingData = true;
   }
   
@@ -790,7 +791,7 @@ async function markStatus(queueId, status, counter, shouldReload = true) {
       
     if (queueError) {
       console.error('Error fetching queue details:', queueError);
-      if (shouldReload) isLoadingData = false;
+      if (!wasLoadingData && shouldReload) isLoadingData = false;
       return;
     }
     
@@ -802,7 +803,7 @@ async function markStatus(queueId, status, counter, shouldReload = true) {
       
     if (updateError) {
       console.error('Error updating queue status:', updateError);
-      if (shouldReload) isLoadingData = false;
+      if (!wasLoadingData && shouldReload) isLoadingData = false;
       return;
     }
     
@@ -815,7 +816,7 @@ async function markStatus(queueId, status, counter, shouldReload = true) {
       
     if (updateNowServingError) {
       console.error('Error updating now serving:', updateNowServingError);
-      if (shouldReload) isLoadingData = false;
+      if (!wasLoadingData && shouldReload) isLoadingData = false;
       return;
     }
     
@@ -825,7 +826,7 @@ async function markStatus(queueId, status, counter, shouldReload = true) {
   } catch (error) {
     console.error('Error marking queue status:', error);
   } finally {
-    if (shouldReload) {
+    if (!wasLoadingData && shouldReload) {
       isLoadingData = false;
     }
   }
