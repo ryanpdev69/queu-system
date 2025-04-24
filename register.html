@@ -150,7 +150,7 @@
         <input type="text" class="form-control" id="studentNumber" required 
                pattern="^\d{4}-(0[1-9]|1[0-2])-\d{5}$"
                oninput="this.value = this.value.replace(/[^0-9-]/g, ''); 
-                        if (this.value.length > 12) this.value = this.value.slice(0, 12);">
+                        if (this.value.length > 13) this.value = this.value.slice(0, 13);">
         <div class="form-text">Format: YYYY-MM-XXXXX (e.g. 2022-10-10767)</div>
         <div class="invalid-feedback">Please enter a valid student number in format YYYY-MM-XXXXX (month must be 01-12).</div>
       </div>
