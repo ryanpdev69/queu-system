@@ -811,7 +811,7 @@ async function autoCancel(queueId) {
 }
 
   
-  // Queue form submission
+ // Queue form submission
 document.getElementById('queueForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   
@@ -852,18 +852,24 @@ document.getElementById('queueForm').addEventListener('submit', async (e) => {
       return;
     }
     
-    // Get the next queue number
-    const { data: existing, error: queryError } = await supabaseClient
-      .from('queues')
-      .select('queue_number')
-      .order('queue_number', { ascending: false })
-      .limit(1);
+    // Call the database function to get the next queue number
+    // This function handles the daily reset at midnight Philippines time
+    const { data: sequenceResult, error: sequenceError } = await supabaseClient.rpc('get_next_queue_number');
     
-    if (queryError) throw queryError;
+    if (sequenceError) throw sequenceError;
     
-    const nextNumber = existing && existing.length ? existing[0].queue_number + 1 : 1;
+    const nextNumber = sequenceResult;
     
-    // Insert new queue entry
+    // Get current Philippine date for display purposes
+    const options = { 
+      timeZone: 'Asia/Manila',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    };
+    const philippineDate = new Date().toLocaleDateString('en-US', options);
+    
+    // Insert new queue entry with the safely generated number
     const { error: insertError } = await supabaseClient
       .from('queues')
       .insert({
@@ -878,6 +884,7 @@ document.getElementById('queueForm').addEventListener('submit', async (e) => {
     showMessage('success', `
       <h4 class="alert-heading">Success!</h4>
       <p>Your queue number is <strong>${nextNumber}</strong> for <strong>${purpose}</strong>.</p>
+      <p class="mb-0">Date: ${philippineDate} (PH time)</p>
       <p class="mb-0">Please wait for your number to be called.</p>
     `);
     document.getElementById('queueForm').reset();
