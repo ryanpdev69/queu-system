@@ -6,6 +6,7 @@
   <title>Register</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://www.google.com/recaptcha/api.js" async defer></script>
   <style>
     body {
       background-color: #f8f9fa;
@@ -96,6 +97,10 @@
       .mb-3 {
         margin-bottom: 0.75rem !important;
       }
+      .g-recaptcha {
+        transform: scale(0.85);
+        transform-origin: left;
+      }
     }
     
     /* Validation styles */
@@ -112,6 +117,17 @@
     .was-validated .form-control:invalid ~ .invalid-feedback,
     .form-control.is-invalid ~ .invalid-feedback {
       display: block;
+    }
+    
+    /* CAPTCHA styles */
+    .captcha-container {
+      margin: 1rem 0;
+    }
+    .captcha-error {
+      color: #dc3545;
+      font-size: 0.875em;
+      margin-top: 0.25rem;
+      display: none;
     }
   </style>
 </head>
@@ -150,7 +166,7 @@
         <input type="text" class="form-control" id="studentNumber" required 
                pattern="^\d{4}-(0[1-9]|1[0-2])-\d{5}$"
                oninput="this.value = this.value.replace(/[^0-9-]/g, ''); 
-                        if (this.value.length > 13) this.value = this.value.slice(0, 13);">
+                        if (this.value.length > 12) this.value = this.value.slice(0, 12);">
         <div class="form-text">Format: YYYY-MM-XXXXX (e.g. 2022-10-10767)</div>
         <div class="invalid-feedback">Please enter a valid student number in format YYYY-MM-XXXXX (month must be 01-12).</div>
       </div>
@@ -172,6 +188,12 @@
           <input type="text" class="form-control" id="lastName" required>
           <div class="invalid-feedback">Please provide your last name.</div>
         </div>
+      </div>
+      
+      <!-- CAPTCHA Section -->
+      <div class="captcha-container">
+        <div class="g-recaptcha" data-sitekey="6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI"></div>
+        <div class="captcha-error" id="captchaError">Please verify that you're not a robot.</div>
       </div>
       
       <div class="d-grid gap-2 d-md-flex justify-content-md-end">
@@ -210,18 +232,29 @@
       event.preventDefault();
       event.stopPropagation();
       
+      // Reset captcha error
+      document.getElementById('captchaError').style.display = 'none';
+      
       // Check form validity
       if (!form.checkValidity()) {
         form.classList.add('was-validated');
         return;
       }
       
-      // If form is valid, proceed with registration
-      await handleRegistration();
+      // Verify CAPTCHA
+      const captchaResponse = grecaptcha.getResponse();
+      if (!captchaResponse) {
+        document.getElementById('captchaError').style.display = 'block';
+        return;
+      }
+      
+      // Verify CAPTCHA with server (in a real app, you would verify this with your backend)
+      // For demo purposes, we'll just proceed if there's a response
+      await handleRegistration(captchaResponse);
     }, false);
   })();
 
-  async function handleRegistration() {
+  async function handleRegistration(captchaResponse) {
     showMessage('info', 'Processing registration...');
     
     // Get form values
@@ -243,7 +276,8 @@
             student_number,
             first_name,
             middle_name,
-            last_name
+            last_name,
+            captcha_response: captchaResponse // Store the captcha response (for verification on server if needed)
           },
           emailRedirectTo: window.location.origin // Redirect to current page after email verification (if needed later)
         }
@@ -252,6 +286,8 @@
       if (error) {
         console.error('Auth error:', error);
         showMessage('danger', `Registration error: ${error.message}`);
+        // Reset CAPTCHA on error
+        grecaptcha.reset();
         return;
       }
       
@@ -283,6 +319,7 @@
         showMessage('success', 'Registered successfully! You can now use your account.');
         document.getElementById('registerForm').reset();
         document.getElementById('registerForm').classList.remove('was-validated');
+        grecaptcha.reset();
         
         // Optional: Redirect to a dashboard or home page
         // window.location.href = '/dashboard.html';
@@ -290,6 +327,7 @@
     } catch (unexpectedError) {
       console.error('Unexpected error:', unexpectedError);
       showMessage('danger', `An unexpected error occurred: ${unexpectedError.message}`);
+      grecaptcha.reset();
     }
   }
 </script>
