@@ -139,6 +139,7 @@
   const counterCount = 3;
   let currentUser = null;
   let realtime = null;
+  let isLoadingData = false; // Flag to prevent multiple concurrent data loads
 
   // Format date for display
   function formatDate(dateString) {
@@ -230,19 +231,43 @@
 
   // Load all dashboard data
   async function loadDashboard() {
-    const hasSession = await checkSession();
-    if (!hasSession) return;
+    // Prevent multiple concurrent data loads
+    if (isLoadingData) {
+      console.log('Already loading data, skipping this request');
+      return;
+    }
+    
+    isLoadingData = true;
+    
+    try {
+      const hasSession = await checkSession();
+      if (!hasSession) {
+        isLoadingData = false;
+        return;
+      }
 
-    loadQueueData();
+      await loadQueueData();
+    } catch (error) {
+      console.error('Error loading dashboard:', error);
+    } finally {
+      isLoadingData = false;
+    }
   }
 
   // Load queue-related data
-  function loadQueueData() {
-    updateQueueCounts();
-    updateNowServing();
-    loadCounterControls();
-    loadWaitingQueue();
-    loadCompletedQueue();
+  async function loadQueueData() {
+    try {
+      // Use Promise.all to load data in parallel
+      await Promise.all([
+        updateQueueCounts(),
+        updateNowServing(),
+        loadCounterControls(),
+        loadWaitingQueue(),
+        loadCompletedQueue()
+      ]);
+    } catch (error) {
+      console.error('Error loading queue data:', error);
+    }
   }
 
   // Update queue summary counts
@@ -301,71 +326,75 @@
 
   // Load counter control cards
   async function loadCounterControls() {
-    // Clear existing counter controls
-    document.getElementById('counter-controls').innerHTML = '';
+    try {
+      // Clear existing counter controls first to prevent duplicates
+      document.getElementById('counter-controls').innerHTML = '';
 
-    // Query all active counters at once for better performance
-    const { data: activeQueues, error: activeError } = await supabaseClient
-      .from('queues')
-      .select('*, user:users(first_name, last_name, student_number)')
-      .eq('status', 'called')
-      .order('counter', { ascending: true });
-      
-    if (activeError) {
-      console.error('Error fetching active queues:', activeError);
-      return;
-    }
-    
-    // Create a map of counter to queue data for easy lookup
-    const counterMap = {};
-    activeQueues.forEach(queue => {
-      counterMap[queue.counter] = queue;
-    });
-
-    // Create a card for each counter
-    for (let counter = 1; counter <= counterCount; counter++) {
-      const activeQueue = counterMap[counter];
-      
-      let cardBody = `<div class="text-center py-3"><p class="text-muted">No customer currently being served.</p></div>`;
-
-      if (activeQueue) {
-        const user = activeQueue.user;
-        cardBody = `
-          <div class="p-3">
-            <div class="mb-3">
-              <span class="fw-bold fs-4"># ${activeQueue.queue_number}</span>
-            </div>
-            <p><strong>Student:</strong> ${user.first_name} ${user.last_name}</p>
-            <p><strong>ID:</strong> ${user.student_number}</p>
-            <p><strong>Purpose:</strong> ${activeQueue.purpose}</p>
-            <p><strong>Waiting since:</strong> ${formatDate(activeQueue.created_at)}</p>
-            <div class="d-grid gap-2">
-              <button class="btn btn-success" onclick="markStatus('${activeQueue.id}', 'completed', ${counter})">✅ Complete</button>
-              <button class="btn btn-danger" onclick="markStatus('${activeQueue.id}', 'cancelled', ${counter})">❌ Cancel</button>
-            </div>
-          </div>
-        `;
+      // Query all active counters at once for better performance
+      const { data: activeQueues, error: activeError } = await supabaseClient
+        .from('queues')
+        .select('*, user:users(first_name, last_name, student_number)')
+        .eq('status', 'called')
+        .order('counter', { ascending: true });
+        
+      if (activeError) {
+        console.error('Error fetching active queues:', activeError);
+        return;
       }
+      
+      // Create a map of counter to queue data for easy lookup
+      const counterMap = {};
+      activeQueues.forEach(queue => {
+        counterMap[queue.counter] = queue;
+      });
 
-      const card = `
-        <div class="col-md-4 mb-4">
-          <div class="card shadow-sm h-100">
-            <div class="card-header bg-primary text-white">
-              <h5 class="mb-0">Counter ${counter}</h5>
+      // Create a card for each counter
+      for (let counter = 1; counter <= counterCount; counter++) {
+        const activeQueue = counterMap[counter];
+        
+        let cardBody = `<div class="text-center py-3"><p class="text-muted">No customer currently being served.</p></div>`;
+
+        if (activeQueue) {
+          const user = activeQueue.user;
+          cardBody = `
+            <div class="p-3">
+              <div class="mb-3">
+                <span class="fw-bold fs-4"># ${activeQueue.queue_number}</span>
+              </div>
+              <p><strong>Student:</strong> ${user.first_name} ${user.last_name}</p>
+              <p><strong>ID:</strong> ${user.student_number}</p>
+              <p><strong>Purpose:</strong> ${activeQueue.purpose}</p>
+              <p><strong>Waiting since:</strong> ${formatDate(activeQueue.created_at)}</p>
+              <div class="d-grid gap-2">
+                <button class="btn btn-success" onclick="markStatus('${activeQueue.id}', 'completed', ${counter})">✅ Complete</button>
+                <button class="btn btn-danger" onclick="markStatus('${activeQueue.id}', 'cancelled', ${counter})">❌ Cancel</button>
+              </div>
             </div>
-            <div class="card-body d-flex flex-column">
-              ${cardBody}
-              <div class="mt-auto">
-                <hr>
-                <div class="d-grid gap-2">
-                  <button class="btn btn-primary" onclick="callNext(${counter})">⏭️ Call Next</button>
+          `;
+        }
+
+        const card = `
+          <div class="col-md-4 mb-4">
+            <div class="card shadow-sm h-100">
+              <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">Counter ${counter}</h5>
+              </div>
+              <div class="card-body d-flex flex-column">
+                ${cardBody}
+                <div class="mt-auto">
+                  <hr>
+                  <div class="d-grid gap-2">
+                    <button class="btn btn-primary" onclick="callNext(${counter})">⏭️ Call Next</button>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      `;
-      document.getElementById('counter-controls').innerHTML += card;
+        `;
+        document.getElementById('counter-controls').innerHTML += card;
+      }
+    } catch (error) {
+      console.error('Error loading counter controls:', error);
     }
   }
 
@@ -451,27 +480,37 @@
 
   // Call next customer
   async function callNext(counter) {
+    // Prevent concurrent operations
+    if (isLoadingData) {
+      alert('Please wait, system is processing...');
+      return;
+    }
+    
+    isLoadingData = true;
+    
     try {
       // Check if there's already someone being served at this counter
       const { data: current, error: currentError } = await supabaseClient
         .from('queues')
-        .select('id')
-        .eq('status', 'called')
+        .select('id, status')
         .eq('counter', counter)
+        .eq('status', 'called')
         .maybeSingle();
         
       if (currentError) {
         console.error('Error checking current service:', currentError);
+        isLoadingData = false;
         return;
       }
       
       if (current) {
         if (!confirm(`There is already a customer being served at Counter ${counter}. Mark them as completed and call the next customer?`)) {
+          isLoadingData = false;
           return;
         }
         
         // Mark current as completed
-        await markStatus(current.id, 'completed', counter);
+        await markStatus(current.id, 'completed', counter, false); // Don't reload data yet
       }
       
       // Get next in queue
@@ -485,11 +524,13 @@
         
       if (nextError) {
         console.error('Error fetching next in queue:', nextError);
+        isLoadingData = false;
         return;
       }
       
       if (!next) {
         alert('No customers waiting in queue');
+        isLoadingData = false;
         return;
       }
       
@@ -515,49 +556,70 @@
         
       if (updateError) {
         console.error('Error updating queue status:', updateError);
+        isLoadingData = false;
         return;
       }
       
-      loadQueueData();
+      await loadQueueData();
     } catch (error) {
       console.error('Error calling next customer:', error);
+    } finally {
+      isLoadingData = false;
     }
   }
 
   // Call specific customer to counter
   async function callToCounter(queueId, counter) {
+    // Prevent concurrent operations
+    if (isLoadingData) {
+      alert('Please wait, system is processing...');
+      return;
+    }
+    
+    isLoadingData = true;
+    
     try {
       // Check if there's already someone being served at this counter
       const { data: current, error: currentError } = await supabaseClient
         .from('queues')
-        .select('id')
+        .select('id, status')
         .eq('status', 'called')
         .eq('counter', counter)
         .maybeSingle();
         
       if (currentError) {
         console.error('Error checking current service:', currentError);
+        isLoadingData = false;
         return;
       }
       
       if (current) {
         if (!confirm(`There is already a customer being served at Counter ${counter}. Mark them as completed and call this customer?`)) {
+          isLoadingData = false;
           return;
         }
         
         // Mark current as completed
-        await markStatus(current.id, 'completed', counter);
+        await markStatus(current.id, 'completed', counter, false); // Don't reload data yet
       }
       
       // Get queue details
       const { data: queueDetails, error: queueError } = await supabaseClient
         .from('queues')
-        .select('queue_number')
+        .select('queue_number, status')
         .eq('id', queueId)
         .single();
         
       if (queueError) {
         console.error('Error fetching queue details:', queueError);
+        isLoadingData = false;
+        return;
+      }
+      
+      // Check if the queue is still in waiting status
+      if (queueDetails.status !== 'waiting') {
+        alert('This queue item is no longer waiting and cannot be called.');
+        isLoadingData = false;
         return;
       }
       
@@ -583,19 +645,50 @@
         
       if (updateError) {
         console.error('Error updating queue status:', updateError);
+        isLoadingData = false;
         return;
       }
       
-      loadQueueData();
+      await loadQueueData();
     } catch (error) {
       console.error('Error calling customer to counter:', error);
+    } finally {
+      isLoadingData = false;
     }
   }
 
   // Mark queue status (completed/cancelled)
-  async function markStatus(id, status, counter) {
+  async function markStatus(id, status, counter, shouldReloadData = true) {
+    // If this is a direct action (not part of another function), prevent concurrent operations
+    if (shouldReloadData && isLoadingData) {
+      alert('Please wait, system is processing...');
+      return;
+    }
+    
+    if (shouldReloadData) {
+      isLoadingData = true;
+    }
+    
     try {
-      // Start a transaction using RPC function or handle related tables in sequence
+      // First, check if the queue item is in 'called' status
+      const { data: queue, error: queueError } = await supabaseClient
+        .from('queues')
+        .select('status')
+        .eq('id', id)
+        .single();
+        
+      if (queueError) {
+        console.error('Error checking queue status:', queueError);
+        if (shouldReloadData) isLoadingData = false;
+        return;
+      }
+      
+      // Only allow completing/cancelling items that are in 'called' status
+      if (queue.status !== 'called') {
+        alert('Only customers that have been called can be marked as completed or cancelled.');
+        if (shouldReloadData) isLoadingData = false;
+        return;
+      }
       
       // 1. Update queue status
       const { error: updateError } = await supabaseClient
@@ -605,6 +698,7 @@
         
       if (updateError) {
         console.error(`Error marking queue as ${status}:`, updateError);
+        if (shouldReloadData) isLoadingData = false;
         return;
       }
       
@@ -633,9 +727,15 @@
         }
       }
       
-      loadQueueData();
+      if (shouldReloadData) {
+        await loadQueueData();
+      }
     } catch (error) {
       console.error(`Error marking queue as ${status}:`, error);
+    } finally {
+      if (shouldReloadData) {
+        isLoadingData = false;
+      }
     }
   }
 
