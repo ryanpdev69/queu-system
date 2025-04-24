@@ -130,7 +130,6 @@
 
 <script>
   // Initialize Supabase client
-  // Initialize Supabase client
 const SUPABASE_URL = 'https://mgxyeoikrddeugnpcrtu.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1neHllb2lrcmRkZXVnbnBjcnR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDUzOTg0MzksImV4cCI6MjA2MDk3NDQzOX0.Lz8tp7_xj7BQaCREeJAc_KifxcjbJN1cdixRiLEs_AU';
 
@@ -769,8 +768,70 @@ async function callToCounter(queueId, counter) {
     isLoadingData = false;
   }
 }
-  
+
 // Mark queue status (completed/cancelled)
+async function markStatus(queueId, status, counter, shouldReload = true) {
+  if (isLoadingData && shouldReload) {
+    alert('Please wait, system is processing...');
+    return;
+  }
+  
+  if (shouldReload) {
+    isLoadingData = true;
+  }
+  
+  try {
+    // Get queue details
+    const { data: queue, error: queueError } = await supabaseClient
+      .from('queues')
+      .select('queue_number')
+      .eq('id', queueId)
+      .single();
+      
+    if (queueError) {
+      console.error('Error fetching queue details:', queueError);
+      if (shouldReload) isLoadingData = false;
+      return;
+    }
+    
+    // Update queue status
+    const { error: updateError } = await supabaseClient
+      .from('queues')
+      .update({ status: status })
+      .eq('id', queueId);
+      
+    if (updateError) {
+      console.error('Error updating queue status:', updateError);
+      if (shouldReload) isLoadingData = false;
+      return;
+    }
+    
+    // Clear the now_serving counter number
+    const counterField = `counter_${counter}`;
+    const { error: updateNowServingError } = await supabaseClient
+      .from('now_serving')
+      .update({ [counterField]: 0 })
+      .eq('id', 1);
+      
+    if (updateNowServingError) {
+      console.error('Error updating now serving:', updateNowServingError);
+      if (shouldReload) isLoadingData = false;
+      return;
+    }
+    
+    if (shouldReload) {
+      await loadQueueData();
+    }
+  } catch (error) {
+    console.error('Error marking queue status:', error);
+  } finally {
+    if (shouldReload) {
+      isLoadingData = false;
+    }
+  }
+}
+  
+// Mark queue as serving
 async function markAsServing(queueId, counter) {
   if (isLoadingData) {
     alert('Please wait, system is processing...');
