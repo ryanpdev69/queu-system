@@ -533,10 +533,12 @@ async function loadCounterControls() {
           // If serving, show complete and cancel buttons
           buttonsHtml = `
             <button class="btn btn-success" onclick="markStatus('${activeQueue.id}', 'completed', ${counter})">✅ Complete</button>
-           
+            <button class="btn btn-danger" onclick="markStatus('${activeQueue.id}', 'cancelled', ${counter})">❌ Cancel</button>
+          `;
         } else {
           // If called but not yet serving, show mark as serving button
           buttonsHtml = `
+            <button class="btn btn-primary" onclick="markAsServing('${activeQueue.id}', ${counter})">🔔 Mark as Serving</button>
             <p class="text-muted mt-2 mb-0">Customer is called but not yet serving</p>
           `;
         }
