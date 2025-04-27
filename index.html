@@ -295,172 +295,213 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
   
-  async function loadUser() {
-    try {
-      console.log("Checking session...");
-      // Check if user is authenticated
-      const { data: { session }, error } = await supabaseClient.auth.getSession();
+  // Complete loadUser function
+async function loadUser() {
+  try {
+    console.log("Checking session...");
+    // Check if user is authenticated
+    const { data: { session }, error } = await supabaseClient.auth.getSession();
+    
+    const userInfoEl = document.getElementById('userInfo');
+    if (!userInfoEl) {
+      console.error('Element with id "userInfo" not found');
+      return;
+    }
+    
+    if (error) {
+      console.error("Session error:", error);
+      userInfoEl.innerHTML = `
+        <div class="alert alert-danger">Authentication error: ${error.message}</div>
+      `;
+      return;
+    }
+    
+    if (!session) {
+      console.log("No session found, redirecting to login");
+      userInfoEl.innerHTML = `
+        <div class="alert alert-warning">You are not logged in. Redirecting to login page...</div>
+      `;
+      setTimeout(() => {
+        window.location.href = '/login.html';
+      }, 2000);
+      return;
+    }
+    
+    console.log("Session found, user ID:", session.user.id);
+    userId = session.user.id;
+    
+    // Fetch user profile data
+    console.log("Fetching user profile...");
+    const { data: profile, error: profileError } = await supabaseClient
+      .from('users')
+      .select('email, student_number, first_name, middle_name, last_name')
+      .eq('id', userId)
+      .single();
+    
+    if (profileError) {
+      console.error("Profile fetch error:", profileError);
+      userInfoEl.innerHTML = `
+        <div class="alert alert-danger">Error loading user data: ${profileError.message}</div>
+      `;
+      return;
+    }
+    
+    if (profile) {
+      console.log("Profile loaded:", profile);
+      userProfile = profile;
+      // Display user info without exposing the UUID
+      userInfoEl.innerHTML = `
+        <div class="card bg-light p-3">
+          <h5 class="card-title">Student Information</h5>
+          <p class="mb-1"><strong>Student Number:</strong> ${profile.student_number}</p>
+          <p class="mb-1"><strong>Name:</strong> ${profile.first_name} ${profile.middle_name ? profile.middle_name : ''} ${profile.last_name}</p>
+          <p class="mb-0"><strong>Email:</strong> ${profile.email}</p>
+        </div>
+      `;
       
-      const userInfoEl = document.getElementById('userInfo');
-      if (!userInfoEl) {
-        console.error('Element with id "userInfo" not found');
-        return;
+      // Show the form once user is loaded
+      const queueFormEl = document.getElementById('queueForm');
+      if (queueFormEl) {
+        queueFormEl.style.display = 'block';
       }
       
-      if (error) {
-        console.error("Session error:", error);
-        userInfoEl.innerHTML = `
-          <div class="alert alert-danger">Authentication error: ${error.message}</div>
-        `;
-        return;
+      // Load now serving data
+      loadNowServing();
+      
+      // Load user's queue status
+      loadUserQueueStatus();
+      
+      // Set up realtime subscription
+      setupRealtimeSubscription();
+      
+      // Set up fallback refresh interval for entire page
+      setupRefreshInterval();
+      
+      // Check for active timers on page load
+      checkForActiveTimers();
+      
+    } else {
+      console.log("No profile found");
+      userInfoEl.innerHTML = `
+        <div class="alert alert-warning">User profile not found. Please complete your registration.</div>
+      `;
+    }
+  } catch (err) {
+    console.error("Unexpected error:", err);
+    const userInfoEl = document.getElementById('userInfo');
+    if (userInfoEl) {
+      userInfoEl.innerHTML = `
+        <div class="alert alert-danger">Unexpected error: ${err.message}</div>
+      `;
+    }
+  }
+}
+  
+  // Complete setupRealtimeSubscription function
+  function setupRealtimeSubscription() {
+  // Unsubscribe from any existing subscription
+  if (realtime) {
+    supabaseClient.removeChannel(realtime);
+  }
+
+  // Create a single channel for all database events
+  realtime = supabaseClient
+    .channel('page-updates')
+    // Subscribe to queue changes for this user
+.on('postgres_changes', 
+  { event: '*', schema: 'public', table: 'queues', filter: `user_id=eq.${userId}` }, 
+  payload => {
+    console.log('My queue change detected:', payload);
+    loadUserQueueStatus();
+    
+    // Check for status changes that should affect notifications
+    if (payload.new) {
+      // If status changed to "called", show notification (if not acknowledged)
+      if (payload.new.status === 'called' && !acknowledgedCalls.includes(payload.new.id)) {
+        showCalledNotification(payload.new.queue_number, payload.new.counter, payload.new.id);
       }
       
-      if (!session) {
-        console.log("No session found, redirecting to login");
-        userInfoEl.innerHTML = `
-          <div class="alert alert-warning">You are not logged in. Redirecting to login page...</div>
-        `;
-        setTimeout(() => {
-          window.location.href = '/login.html';
-        }, 2000);
-        return;
-      }
-      
-      console.log("Session found, user ID:", session.user.id);
-      userId = session.user.id;
-      
-      // Fetch user profile data
-      console.log("Fetching user profile...");
-      const { data: profile, error: profileError } = await supabaseClient
-        .from('users')
-        .select('email, student_number, first_name, middle_name, last_name')
-        .eq('id', userId)
-        .single();
-      
-      if (profileError) {
-        console.error("Profile fetch error:", profileError);
-        userInfoEl.innerHTML = `
-          <div class="alert alert-danger">Error loading user data: ${profileError.message}</div>
-        `;
-        return;
-      }
-      
-      if (profile) {
-        console.log("Profile loaded:", profile);
-        userProfile = profile;
-        // Display user info without exposing the UUID
-        userInfoEl.innerHTML = `
-          <div class="card bg-light p-3">
-            <h5 class="card-title">Student Information</h5>
-            <p class="mb-1"><strong>Student Number:</strong> ${profile.student_number}</p>
-            <p class="mb-1"><strong>Name:</strong> ${profile.first_name} ${profile.middle_name ? profile.middle_name : ''} ${profile.last_name}</p>
-            <p class="mb-0"><strong>Email:</strong> ${profile.email}</p>
-          </div>
-        `;
+      // If status changed from 'called' to something else (including 'serving'), hide notification
+      else if (payload.old && payload.old.status === 'called' && payload.new.status !== 'called') {
+        console.log('Status changed from called to', payload.new.status);
+        console.log('Current notification ID:', currentlyCalledQueueId);
+        console.log('Changed queue ID:', payload.new.id);
         
-        // Show the form once user is loaded
-        const queueFormEl = document.getElementById('queueForm');
-        if (queueFormEl) {
-          queueFormEl.style.display = 'block';
+        // If this is the notification currently being displayed, hide it
+        if (currentlyCalledQueueId === payload.new.id) {
+          console.log('Hiding notification due to status change to', payload.new.status);
+          hideNotificationFn();
+          if (timerInterval) {
+            clearInterval(timerInterval);
+            timerInterval = null;
+          }
+          localStorage.removeItem(`queueTimer_${payload.new.id}`);
+          currentlyCalledQueueId = null;
         }
-        
-        // Load now serving data
+      }
+    }
+  })
+    // Subscribe to all queue changes (for full page real-time updates)
+    .on('postgres_changes',
+      { event: '*', schema: 'public', table: 'queues' },
+      payload => {
+        console.log('General queue change detected:', payload);
+        // This ensures we see updates to all queues, not just our own
+        loadNowServing(); // Refresh now serving whenever any queue changes
+      })
+    // Subscribe to now_serving table changes
+    .on('postgres_changes',
+      { event: '*', schema: 'public', table: 'now_serving' },
+      payload => {
+        console.log('Now serving change detected:', payload);
+        if (payload.new) {
+          updateNowServingDisplay(payload.new);
+        }
+      })
+    .subscribe();
+      
+  console.log("Realtime subscription set up for entire page");
+  
+  // Add a connection status indicator
+  const refreshStatusEl = document.getElementById('refreshStatus');
+  const refreshSpinnerEl = document.getElementById('refreshSpinner');
+  
+  if (refreshStatusEl && refreshSpinnerEl) {
+    supabaseClient.channel('system')
+      .on('system', { event: 'disconnect' }, () => {
+        refreshStatusEl.textContent = 'Connection lost. Reconnecting...';
+        refreshSpinnerEl.classList.add('active');
+      })
+      .on('system', { event: 'reconnect' }, () => {
+        refreshStatusEl.textContent = 'Real-time updates active';
+        setTimeout(() => {
+          refreshSpinnerEl.classList.remove('active');
+        }, 500);
+        // Refresh data after reconnection
         loadNowServing();
-        
-        // Load user's queue status
         loadUserQueueStatus();
         
-        // Set up realtime subscription
-        setupRealtimeSubscription();
-        
-        // Set up fallback refresh interval for entire page
-        setupRefreshInterval();
-      } else {
-        console.log("No profile found");
-        userInfoEl.innerHTML = `
-          <div class="alert alert-warning">User profile not found. Please complete your registration.</div>
-        `;
-      }
-    } catch (err) {
-      console.error("Unexpected error:", err);
-      const userInfoEl = document.getElementById('userInfo');
-      if (userInfoEl) {
-        userInfoEl.innerHTML = `
-          <div class="alert alert-danger">Unexpected error: ${err.message}</div>
-        `;
-      }
-    }
-  }
-  
-  // Set up realtime subscriptions
-  function setupRealtimeSubscription() {
-    // Unsubscribe from any existing subscription
-    if (realtime) {
-      supabaseClient.removeChannel(realtime);
-    }
-
-    // Create a single channel for all database events
-    realtime = supabaseClient
-      .channel('page-updates')
-      // Subscribe to queue changes for this user
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'queues', filter: `user_id=eq.${userId}` }, 
-        payload => {
-          console.log('My queue change detected:', payload);
-          loadUserQueueStatus();
-          
-          // If status changed to "called", show notification
-          if (payload.new && payload.new.status === 'called') {
-            // Check if we already acknowledged this call
-            if (!acknowledgedCalls.includes(payload.new.id)) {
-              showCalledNotification(payload.new.queue_number, payload.new.counter, payload.new.id);
-            }
-          }
-        })
-      // Subscribe to all queue changes (for full page real-time updates)
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'queues' },
-        payload => {
-          console.log('General queue change detected:', payload);
-          // This ensures we see updates to all queues, not just our own
-          loadNowServing(); // Refresh now serving whenever any queue changes
-        })
-      // Subscribe to now_serving table changes
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'now_serving' },
-        payload => {
-          console.log('Now serving change detected:', payload);
-          if (payload.new) {
-            updateNowServingDisplay(payload.new);
-          }
-        })
+        // Check for active timer after reconnection
+        checkForActiveTimers();
+      })
       .subscribe();
-      
-    console.log("Realtime subscription set up for entire page");
-    
-    // Add a connection status indicator
-    const refreshStatusEl = document.getElementById('refreshStatus');
-    const refreshSpinnerEl = document.getElementById('refreshSpinner');
-    
-    if (refreshStatusEl && refreshSpinnerEl) {
-      supabaseClient.channel('system')
-        .on('system', { event: 'disconnect' }, () => {
-          refreshStatusEl.textContent = 'Connection lost. Reconnecting...';
-          refreshSpinnerEl.classList.add('active');
-        })
-        .on('system', { event: 'reconnect' }, () => {
-          refreshStatusEl.textContent = 'Real-time updates active';
-          setTimeout(() => {
-            refreshSpinnerEl.classList.remove('active');
-          }, 500);
-          // Refresh data after reconnection
-          loadNowServing();
-          loadUserQueueStatus();
-        })
-        .subscribe();
-    }
   }
+}
+
+// Add the missing hideNotificationFn function
+function hideNotificationFn() {
+  console.log("Hiding notification modal");
+  const modalBackdropEl = document.getElementById('modalBackdrop');
+  const notificationModalEl = document.getElementById('notificationModal');
   
+  if (modalBackdropEl) modalBackdropEl.style.display = 'none';
+  if (notificationModalEl) notificationModalEl.style.display = 'none';
+  else console.error("Notification modal element not found");
+}
+
+// Make function available globally
+window.hideNotificationFn = hideNotificationFn;
+
   // Set up fallback refresh interval
   function setupRefreshInterval() {
     // Clear any existing interval
@@ -737,54 +778,94 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  // 1. Fix for timer reset issue: Store timer info in localStorage
   function showCalledNotificationFn(queueNumber, counter, queueId) {
-    // Update notification content
-    const calledNumberEl = document.getElementById('calledNumber');
-    const counterNumberEl = document.getElementById('counterNumber');
-    const modalBackdropEl = document.getElementById('modalBackdrop');
-    const notificationModalEl = document.getElementById('notificationModal');
-    const timerSecondsEl = document.getElementById('timerSeconds');
-    const timerProgressEl = document.getElementById('timerProgress');
-    
-    if (!calledNumberEl || !counterNumberEl || !modalBackdropEl || 
-        !notificationModalEl || !timerSecondsEl || !timerProgressEl) {
-      console.error('Notification elements not found');
-      return;
-    }
+  // Update notification content
+  const calledNumberEl = document.getElementById('calledNumber');
+  const counterNumberEl = document.getElementById('counterNumber');
+  const modalBackdropEl = document.getElementById('modalBackdrop');
+  const notificationModalEl = document.getElementById('notificationModal');
+  const timerSecondsEl = document.getElementById('timerSeconds');
+  const timerProgressEl = document.getElementById('timerProgress');
+  
+  if (!calledNumberEl || !counterNumberEl || !modalBackdropEl || 
+      !notificationModalEl || !timerSecondsEl || !timerProgressEl) {
+    console.error('Notification elements not found');
+    return;
+  }
 
-    if (currentlyCalledQueueId === queueId && timerInterval) {
-      // Already showing this queue's notification, don't restart timer
-      return;
-    }
+  // Check if we already have timer data in localStorage for this queue
+  const timerKey = `queueTimer_${queueId}`;
+  let timerData = JSON.parse(localStorage.getItem(timerKey) || 'null');
+  
+  // If there's no timer data or it's expired, create new timer data
+  const now = Date.now();
+  if (!timerData || timerData.endTime <= now) {
+    timerData = {
+      startTime: now,
+      endTime: now + (300 * 1000), // 5 minutes in milliseconds
+      queueId: queueId
+    };
+    localStorage.setItem(timerKey, JSON.stringify(timerData));
+  }
+  
+  // Return early if we're already showing this notification
+  if (currentlyCalledQueueId === queueId && timerInterval) {
+    return;
+  }
 
-    calledNumberEl.textContent = queueNumber;
-    counterNumberEl.textContent = `Counter ${counter}`;
-    
-    // Show notification modal
-    modalBackdropEl.style.display = 'block';
-    notificationModalEl.style.display = 'block';
-    
-    // Store current queue ID
-    currentlyCalledQueueId = queueId;
-    
-    // Reset and start timer
-    secondsLeft = 300; // 5 minutes
-    timerSecondsEl.textContent = secondsLeft;
-    timerProgressEl.style.width = '100%';
-    timerProgressEl.className = 'progress-bar timer-progress';
-    
-    // Clear any existing timer
-    if (timerInterval) {
-      clearInterval(timerInterval);
-      timerInterval = null;
-    }
-    
-    // Start countdown
+  calledNumberEl.textContent = queueNumber;
+  counterNumberEl.textContent = `Counter ${counter}`;
+  
+  // Show notification modal
+  modalBackdropEl.style.display = 'block';
+  notificationModalEl.style.display = 'block';
+  
+  // Store current queue ID
+  // Update in showCalledNotificationFn
+currentlyCalledQueueId = queueId;
+console.log(`Set currentlyCalledQueueId to ${queueId}`);
+  
+  // Calculate remaining time based on stored endTime
+  const remainingMs = timerData.endTime - now;
+  secondsLeft = Math.max(0, Math.floor(remainingMs / 1000));
+  
+  // Update display
+  timerSecondsEl.textContent = secondsLeft;
+  timerProgressEl.style.width = `${(secondsLeft / 300) * 100}%`;
+  
+  // Set appropriate progress bar color
+  if (secondsLeft <= 60) {
+    timerProgressEl.className = 'progress-bar timer-progress bg-danger';
+  } else if (secondsLeft <= 120) {
+    timerProgressEl.className = 'progress-bar timer-progress bg-warning';
+  } else {
+    timerProgressEl.className = 'progress-bar timer-progress'; 
+  }
+  
+  // Clear any existing timer
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+  
+  // Start countdown if there's time left
+  if (secondsLeft > 0) {
     timerInterval = setInterval(() => {
       secondsLeft--;
+      
+      // Update display
       timerSecondsEl.textContent = secondsLeft;
       const percentage = (secondsLeft / 300) * 100;
       timerProgressEl.style.width = `${percentage}%`;
+      
+      // Update localStorage with current time
+      const updatedTimerData = {
+        ...timerData,
+        currentTime: Date.now(),
+        secondsLeft: secondsLeft
+      };
+      localStorage.setItem(timerKey, JSON.stringify(updatedTimerData));
       
       // Change progress bar color as time decreases
       if (secondsLeft <= 60) {
@@ -796,32 +877,215 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (secondsLeft <= 0) {
         clearInterval(timerInterval);
         timerInterval = null;
-        autoCancel(currentlyCalledQueueId); // Let autoCancel handle hiding the modal
+        localStorage.removeItem(timerKey);
+        autoCancel(currentlyCalledQueueId);
       }
     }, 1000);
+  } else {
+    // Time's already up
+    localStorage.removeItem(timerKey);
+    autoCancel(currentlyCalledQueueId);
   }
+}
 
-  window.hideNotification = function() {
-    hideNotificationFn();
-  };
-
-  function hideNotificationFn() {
-    const modalBackdropEl = document.getElementById('modalBackdrop');
-    const notificationModalEl = document.getElementById('notificationModal');
-    
-    if (modalBackdropEl && notificationModalEl) {
-      modalBackdropEl.style.display = 'none';
-      notificationModalEl.style.display = 'none';
+ // Helper function to check for active timers on page load
+ function checkForActiveTimers() {
+  // Look for any timer data in localStorage
+  const keys = Object.keys(localStorage);
+  for (const key of keys) {
+    if (key.startsWith('queueTimer_')) {
+      try {
+        const timerData = JSON.parse(localStorage.getItem(key));
+        if (timerData && timerData.endTime > Date.now()) {
+          // This is an active timer, get queue details and show notification
+          const queueId = timerData.queueId;
+          // Fetch queue details and show notification
+          supabaseClient
+            .from('queues')
+            .select('*')
+            .eq('id', queueId)
+            .single()
+            .then(response => {
+              if (response.data && response.data.status === 'called') {
+                showCalledNotification(response.data.queue_number, response.data.counter, queueId);
+              } else {
+                // Queue is no longer in called status, remove timer data
+                localStorage.removeItem(key);
+              }
+            });
+        } else {
+          // Timer is expired, remove it
+          localStorage.removeItem(key);
+        }
+      } catch (e) {
+        console.error('Error processing timer data:', e);
+        localStorage.removeItem(key);
+      }
     }
-    
-    // Don't clear the timer here to ensure autoCancel still works
-    // but make sure we stop the countdown to prevent multiple cancellations
+  }
+}
+
+  // Clean up timers on cancel or accept
+  async function acceptQueue() {
+  if (!currentlyCalledQueueId) {
+    console.log("No current queue ID to accept");
+    return;
+  }
+  
+  console.log(`Accepting queue ${currentlyCalledQueueId}`);
+  
+  try {
+    // Clear timer data
     if (timerInterval) {
       clearInterval(timerInterval);
       timerInterval = null;
     }
+    localStorage.removeItem(`queueTimer_${currentlyCalledQueueId}`);
+    
+    // Mark this call as acknowledged in localStorage
+    acknowledgedCalls.push(currentlyCalledQueueId);
+    localStorage.setItem('acknowledgedCalls', JSON.stringify(acknowledgedCalls));
+    
+    // Update the queue status to "serving" instead of "completed"
+    const { error: updateError } = await supabaseClient
+      .from('queues')
+      .update({ status: 'serving' })
+      .eq('id', currentlyCalledQueueId);
+      
+    if (updateError) {
+      throw new Error(updateError.message);
+    }
+    
+    // Explicitly hide the notification
+    hideNotificationFn();
+    showMessage('success', 'You have accepted the call. Please proceed to the counter.');
+    
+    // Store the ID before nullifying for debugging
+    const processedQueueId = currentlyCalledQueueId;
+    
+    // Clear current queue ID reference
+    currentlyCalledQueueId = null;
+    
+    console.log(`Queue ${processedQueueId} accepted and processed`);
+    
+    // Reload user queue status to update UI
+    loadUserQueueStatus();
+  } catch (error) {
+    showMessage('danger', `Error accepting call: ${error.message}`);
+  }
+}
+
+// 2. Fix the showCalledNotificationFn function to properly handle timer persistence:
+function showCalledNotificationFn(queueNumber, counter, queueId) {
+  console.log(`Showing notification for queue ${queueId}, counter ${counter}, number ${queueNumber}`);
+  
+  // Update notification content
+  const calledNumberEl = document.getElementById('calledNumber');
+  const counterNumberEl = document.getElementById('counterNumber');
+  const modalBackdropEl = document.getElementById('modalBackdrop');
+  const notificationModalEl = document.getElementById('notificationModal');
+  const timerSecondsEl = document.getElementById('timerSeconds');
+  const timerProgressEl = document.getElementById('timerProgress');
+  
+  if (!calledNumberEl || !counterNumberEl || !modalBackdropEl || 
+      !notificationModalEl || !timerSecondsEl || !timerProgressEl) {
+    console.error('Notification elements not found');
+    return;
+  }
+
+  // Check if we already have timer data in localStorage for this queue
+  const timerKey = `queueTimer_${queueId}`;
+  let timerData = JSON.parse(localStorage.getItem(timerKey) || 'null');
+  
+  // If there's no timer data or it's expired, create new timer data
+  const now = Date.now();
+  if (!timerData || timerData.endTime <= now) {
+    timerData = {
+      startTime: now,
+      endTime: now + (300 * 1000), // 5 minutes in milliseconds
+      queueId: queueId
+    };
+    localStorage.setItem(timerKey, JSON.stringify(timerData));
   }
   
+  // Return early if we're already showing this notification
+  if (currentlyCalledQueueId === queueId && timerInterval) {
+    console.log("Already showing notification for this queue, returning early");
+    return;
+  }
+
+  calledNumberEl.textContent = queueNumber;
+  counterNumberEl.textContent = `Counter ${counter}`;
+  
+  // Show notification modal
+  modalBackdropEl.style.display = 'block';
+  notificationModalEl.style.display = 'block';
+  
+  // Store current queue ID
+  currentlyCalledQueueId = queueId;
+  console.log(`Set currentlyCalledQueueId to ${queueId}`);
+  
+  // Calculate remaining time based on stored endTime
+  const remainingMs = timerData.endTime - now;
+  secondsLeft = Math.max(0, Math.floor(remainingMs / 1000));
+  
+  // Update display
+  timerSecondsEl.textContent = secondsLeft;
+  timerProgressEl.style.width = `${(secondsLeft / 300) * 100}%`;
+  
+  // Set appropriate progress bar color
+  if (secondsLeft <= 60) {
+    timerProgressEl.className = 'progress-bar timer-progress bg-danger';
+  } else if (secondsLeft <= 120) {
+    timerProgressEl.className = 'progress-bar timer-progress bg-warning';
+  } else {
+    timerProgressEl.className = 'progress-bar timer-progress'; 
+  }
+  
+  // Clear any existing timer
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+  
+  // Start countdown if there's time left
+  if (secondsLeft > 0) {
+    timerInterval = setInterval(() => {
+      secondsLeft--;
+      
+      // Update display
+      timerSecondsEl.textContent = secondsLeft;
+      const percentage = (secondsLeft / 300) * 100;
+      timerProgressEl.style.width = `${percentage}%`;
+      
+      // Update localStorage with current time
+      const updatedTimerData = {
+        ...timerData,
+        currentTime: Date.now(),
+        secondsLeft: secondsLeft
+      };
+      localStorage.setItem(timerKey, JSON.stringify(updatedTimerData));
+      
+      // Change progress bar color as time decreases
+      if (secondsLeft <= 60) {
+        timerProgressEl.className = 'progress-bar timer-progress bg-danger';
+      } else if (secondsLeft <= 120) {
+        timerProgressEl.className = 'progress-bar timer-progress bg-warning';
+      }
+      
+      if (secondsLeft <= 0) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+        localStorage.removeItem(timerKey);
+        autoCancel(currentlyCalledQueueId);
+      }
+    }, 1000);
+  } else {
+    // Time's already up
+    localStorage.removeItem(timerKey);
+    autoCancel(currentlyCalledQueueId);
+  }
+}
   async function autoCancel(queueId) {
     // Use the passed queueId instead of relying on the global variable
     // This ensures we're cancelling the right queue even if the global variable changed
@@ -1016,40 +1280,50 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   // Accept button click handler
   const acceptBtnEl = document.getElementById('acceptBtn');
-  if (acceptBtnEl) {
-    acceptBtnEl.addEventListener('click', async () => {
-      if (!currentlyCalledQueueId) return;
-      
-      try {
-        // Mark this call as acknowledged in localStorage
-        acknowledgedCalls.push(currentlyCalledQueueId);
-        localStorage.setItem('acknowledgedCalls', JSON.stringify(acknowledgedCalls));
-        
-        // Update the queue status to "serving" instead of "completed"
-        const { error: updateError } = await supabaseClient
-          .from('queues')
-          .update({ status: 'serving' })
-          .eq('id', currentlyCalledQueueId);
-          
-        if (updateError) {
-          throw new Error(updateError.message);
-        }
-        
-        // NOTE: We're not clearing the counter in now_serving since the user is now being served
-        // The counter should continue to display the queue number while they're being served
-        
-        hideNotificationFn();
-        showMessage('success', 'You have accepted the call. Please proceed to the counter.');
-        
-        // Reload user queue status to update UI
-        loadUserQueueStatus();
-        
-        currentlyCalledQueueId = null;
-      } catch (error) {
-        showMessage('danger', `Error accepting call: ${error.message}`);
+if (acceptBtnEl) {
+  acceptBtnEl.addEventListener('click', async () => {
+    if (!currentlyCalledQueueId) return;
+    
+    try {
+      // Clear timer data
+      if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
       }
-    });
-  }
+      localStorage.removeItem(`queueTimer_${currentlyCalledQueueId}`);
+      
+      // Mark this call as acknowledged in localStorage
+      acknowledgedCalls.push(currentlyCalledQueueId);
+      localStorage.setItem('acknowledgedCalls', JSON.stringify(acknowledgedCalls));
+      
+      // Update the queue status to "serving" instead of "completed"
+      const { error: updateError } = await supabaseClient
+        .from('queues')
+        .update({ status: 'serving' })
+        .eq('id', currentlyCalledQueueId);
+        
+      if (updateError) {
+        throw new Error(updateError.message);
+      }
+      
+      // Explicitly hide the notification modal
+      hideNotificationFn();
+      showMessage('success', 'You have accepted the call. Please proceed to the counter.');
+      
+      // Store the current queue ID before nullifying it (for debugging)
+      const processedQueueId = currentlyCalledQueueId;
+      console.log(`Queue ${processedQueueId} accepted and notification closed`);
+      
+      // Clear the current queue ID reference
+      currentlyCalledQueueId = null;
+      
+      // Reload user queue status to update UI
+      loadUserQueueStatus();
+    } catch (error) {
+      showMessage('danger', `Error accepting call: ${error.message}`);
+    }
+  });
+}
   
   // Cancel button click handler
   const cancelBtnEl = document.getElementById('cancelBtn');
