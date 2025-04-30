@@ -118,6 +118,10 @@
             color: var(--text-color);
             font-family: 'Roboto', sans-serif;
             position: relative;
+            min-height: 120px; /* Added fixed height to prevent layout shift */
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         
         .number-change {
@@ -226,6 +230,11 @@
             z-index: -1;
         }
         
+        /* Placeholder style for empty counter */
+        .number-display.empty {
+            opacity: 0.3;
+        }
+        
         @keyframes numberPulse {
             0% { transform: scale(1); text-shadow: 0 0 5px rgba(255, 204, 0, 0.5); }
             50% { transform: scale(1.2); text-shadow: 0 0 20px rgba(255, 204, 0, 0.8); }
@@ -314,19 +323,19 @@
                 <div class="col-md-4 counter-container">
                     <div class="counter-card">
                         <div class="counter-title">COUNTER 1</div>
-                        <div class="number-display" id="counter1">0</div>
+                        <div class="number-display empty" id="counter1">—</div>
                     </div>
                 </div>
                 <div class="col-md-4 counter-container">
                     <div class="counter-card">
                         <div class="counter-title">COUNTER 2</div>
-                        <div class="number-display" id="counter2">0</div>
+                        <div class="number-display empty" id="counter2">—</div>
                     </div>
                 </div>
                 <div class="col-md-4 counter-container">
                     <div class="counter-card">
                         <div class="counter-title">COUNTER 3</div>
-                        <div class="number-display" id="counter3">0</div>
+                        <div class="number-display empty" id="counter3">—</div>
                     </div>
                 </div>
             </div>
@@ -591,24 +600,30 @@
             if (newValue !== currentValues[counterKey]) {
                 currentValues[counterKey] = newValue;
                 
-                // Add animation class
-                element.classList.add('number-change');
-                
-                // Play sound
-                try {
-                    numberChangeSound.currentTime = 0;
-                    numberChangeSound.play().catch(e => console.log('Audio play failed:', e));
-                } catch (e) {
-                    console.log('Audio element error:', e);
+                // Check if the value is 0 and display differently
+                if (newValue === 0) {
+                    element.textContent = '—'; // Using an em dash as placeholder
+                    element.classList.add('empty');
+                } else {
+                    element.textContent = newValue;
+                    element.classList.remove('empty');
+                    
+                    // Add animation class
+                    element.classList.add('number-change');
+                    
+                    // Play sound if changing from 0 to something else or from something to another number
+                    try {
+                        numberChangeSound.currentTime = 0;
+                        numberChangeSound.play().catch(e => console.log('Audio play failed:', e));
+                    } catch (e) {
+                        console.log('Audio element error:', e);
+                    }
+                    
+                    // Remove animation class after animation completes
+                    setTimeout(() => {
+                        element.classList.remove('number-change');
+                    }, 1000);
                 }
-                
-                // Update display
-                element.textContent = newValue;
-                
-                // Remove animation class after animation completes
-                setTimeout(() => {
-                    element.classList.remove('number-change');
-                }, 1000);
             }
         }
     </script>
