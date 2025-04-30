@@ -366,9 +366,9 @@
         let idleTimer;
         let lastMouseMove = 0;
         let currentValues = {
-            counter_1: 0,
-            counter_2: 0,
-            counter_3: 0
+            counter_1: null,
+            counter_2: null,
+            counter_3: null
         };
         
         // DOM elements
@@ -600,8 +600,8 @@
             if (newValue !== currentValues[counterKey]) {
                 currentValues[counterKey] = newValue;
                 
-                // Check if the value is 0 and display differently
-                if (newValue === 0) {
+                // Check if the value is falsy (0, null, undefined, empty string, etc.)
+                if (!newValue && newValue !== undefined) {
                     element.textContent = '—'; // Using an em dash as placeholder
                     element.classList.add('empty');
                 } else {
@@ -611,7 +611,7 @@
                     // Add animation class
                     element.classList.add('number-change');
                     
-                    // Play sound if changing from 0 to something else or from something to another number
+                    // Play sound if changing from empty to something else or from something to another number
                     try {
                         numberChangeSound.currentTime = 0;
                         numberChangeSound.play().catch(e => console.log('Audio play failed:', e));
