@@ -181,6 +181,49 @@ const DEFAULT_REFRESH_INTERVAL = 30000;
 let refreshCountdown = DEFAULT_REFRESH_INTERVAL / 1000; // Convert from ms to seconds
 let refreshCountdownInterval = null;
 
+function loadAutoRefreshPreferences() {
+  try {
+    const savedPrefs = localStorage.getItem('adminQueueDashboardPrefs');
+    if (savedPrefs) {
+      const preferences = JSON.parse(savedPrefs);
+      
+      // Apply saved preferences
+      autoRefreshEnabled = preferences.autoRefreshEnabled || false;
+      
+      // Update UI to match the saved preferences
+      const autoRefreshBtn = document.getElementById('auto-refresh-btn');
+      const statusAlert = document.getElementById('auto-refresh-status');
+      
+      if (autoRefreshEnabled) {
+        autoRefreshBtn.innerHTML = '⏸️ Pause Auto-Refresh';
+        autoRefreshBtn.classList.remove('btn-success');
+        autoRefreshBtn.classList.add('btn-warning');
+        statusAlert.style.display = 'block';
+        
+        // Start the auto-refresh immediately
+        updateRefreshCountdown();
+        autoRefreshInterval = setInterval(() => {
+          loadDashboard();
+          updateRefreshCountdown();
+        }, DEFAULT_REFRESH_INTERVAL);
+        
+        console.log('Auto-refresh enabled from saved preferences');
+      } else {
+        autoRefreshBtn.innerHTML = '▶️ Enable Auto-Refresh';
+        autoRefreshBtn.classList.add('btn-success');
+        autoRefreshBtn.classList.remove('btn-warning');
+        statusAlert.style.display = 'none';
+        
+        console.log('Auto-refresh disabled from saved preferences');
+      }
+    }
+  } catch (error) {
+    console.error('Error loading auto-refresh preferences:', error);
+    // If there's an error, don't enable auto-refresh
+    autoRefreshEnabled = false;
+  }
+}
+
 function saveAutoRefreshPreferences() {
   const preferences = {
     autoRefreshEnabled: autoRefreshEnabled,
@@ -421,14 +464,12 @@ function setupRealtimeSubscription() {
 
 // Load all dashboard data
 async function loadDashboard() {
-
-    if (isLoadingData && autoRefreshInterval) {
-    console.log('Skipping auto-refresh as data is currently loading');
-    return;
-    }
-  // Prevent multiple concurrent data loads
+  // Prevent refreshing if data is already loading
   if (isLoadingData) {
-    console.log('Already loading data, skipping this request');
+    console.log('Already loading data, skipping this refresh request');
+    if (autoRefreshEnabled) {
+      showToast('Skipping auto-refresh as data is still loading', 'info');
+    }
     return;
   }
   
@@ -449,11 +490,19 @@ async function loadDashboard() {
     await ensureNowServingRecord();
     await loadQueueData();
     
-    // Show success message
-    showToast('Dashboard data refreshed successfully', 'success');
+    // Show success message only if this was a manual refresh (not auto)
+    if (!autoRefreshEnabled) {
+      showToast('Dashboard data refreshed successfully', 'success');
+    }
   } catch (error) {
     console.error('Error loading dashboard:', error);
     showToast('Failed to load dashboard data', 'danger');
+    
+    // If auto-refresh is enabled and we encounter multiple errors, disable it
+    if (autoRefreshEnabled && error.count > 3) {
+      toggleAutoRefresh(); // This will turn it off
+      showToast('Auto-refresh disabled due to repeated errors', 'warning');
+    }
   } finally {
     isLoadingData = false;
     document.getElementById('loading-indicator').classList.add('d-none');
@@ -1243,16 +1292,7 @@ async function handleLogout() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-  
-    loadDashboard();
-    loadAutoRefreshPreferences();
-  // Set up event listeners
-
-   document.getElementById('refresh-btn').addEventListener('click', loadDashboard);
-  document.getElementById('auto-refresh-btn').addEventListener('click', toggleAutoRefresh);
-  document.getElementById('logout-btn').addEventListener('click', logout);
-
-    // Initialize Bootstrap toast
+  // Initialize Bootstrap toast
   const toastElList = document.querySelectorAll('.toast');
   toastElList.forEach(toastEl => {
     toast = new bootstrap.Toast(toastEl, {
@@ -1262,18 +1302,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   
   // Set up event listeners
-  document.getElementById('refresh-btn').addEventListener('click', loadQueueData);
+  document.getElementById('refresh-btn').addEventListener('click', loadDashboard);
+  document.getElementById('auto-refresh-btn').addEventListener('click', toggleAutoRefresh);
   document.getElementById('logout-btn').addEventListener('click', handleLogout);
-  
-  // Ensure now_serving record exists first
+
+// Ensure now_serving record exists first
   await ensureNowServingRecord();
   
   // Load initial data
   loadDashboard();
   
-  // Set up periodic refresh (every 5 minutes)
-  setInterval(loadQueueData, 300000);
+  // Load saved preferences AFTER initial data load
+  loadAutoRefreshPreferences();
 });
+
 </script>
 </body>
 </html>
