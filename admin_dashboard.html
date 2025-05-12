@@ -16,6 +16,16 @@
   </nav>
 
   <div class="container py-5">
+    <div class="alert alert-info mb-4" id="auto-refresh-status" style="display: none;">
+  <div class="d-flex align-items-center">
+    <div class="spinner-border spinner-border-sm me-2" role="status">
+      <span class="visually-hidden">Auto-refreshing...</span>
+    </div>
+    <div>
+      <strong>Auto-refresh enabled</strong> - Dashboard updates every 30 seconds. Next update in <span id="refresh-countdown">30</span> seconds.
+    </div>
+  </div>
+</div>
     <!-- Toast container for notifications -->
     <div class="toast-container position-fixed top-0 end-0 p-3">
       <div id="toast-notification" class="toast align-items-center border-0" role="alert" aria-live="assertive" aria-atomic="true">
@@ -41,13 +51,16 @@
 
     <div id="dashboard-content" class="d-none">
       <div class="row align-items-center mb-4">
-        <div class="col">
-          <h2 class="mb-0">📋 Admin Queue Dashboard</h2>
-        </div>
-        <div class="col-auto">
-          <button id="refresh-btn" class="btn btn-outline-primary">🔄 Refresh</button>
-        </div>
-      </div>
+  <div class="col">
+    <h2 class="mb-0">📋 Admin Queue Dashboard</h2>
+  </div>
+  <div class="col-auto">
+    <div class="btn-group">
+      <button id="auto-refresh-btn" class="btn btn-success me-2">▶️ Enable Auto-Refresh</button>
+      <button id="refresh-btn" class="btn btn-outline-primary">🔄 Refresh</button>
+    </div>
+  </div>
+</div>
       
       <div class="row mb-4">
         <div class="col-lg-6">
@@ -156,11 +169,105 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const { createClient } = supabase;
 const supabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
 
+//global variables
 const counterCount = 3;
 let currentUser = null;
 let realtime = null;
 let isLoadingData = false; // Flag to prevent multiple concurrent data loads
 let toast; // Reference to Bootstrap toast
+let autoRefreshEnabled = false;
+let autoRefreshInterval = null;
+const DEFAULT_REFRESH_INTERVAL = 30000;
+let refreshCountdown = DEFAULT_REFRESH_INTERVAL / 1000; // Convert from ms to seconds
+let refreshCountdownInterval = null;
+
+function saveAutoRefreshPreferences() {
+  const preferences = {
+    autoRefreshEnabled: autoRefreshEnabled,
+    refreshInterval: DEFAULT_REFRESH_INTERVAL
+  };
+  
+  localStorage.setItem('adminQueueDashboardPrefs', JSON.stringify(preferences));
+}
+
+// Add this function to update the refresh countdown timer
+function updateRefreshCountdown() {
+  refreshCountdown = DEFAULT_REFRESH_INTERVAL / 1000;
+  
+  // Show the status alert
+  const statusAlert = document.getElementById('auto-refresh-status');
+  statusAlert.style.display = 'block';
+  
+  // Clear any existing countdown
+  if (refreshCountdownInterval) {
+    clearInterval(refreshCountdownInterval);
+  }
+  
+  // Update the countdown every second
+  refreshCountdownInterval = setInterval(() => {
+    refreshCountdown--;
+    
+    // Update the countdown display
+    document.getElementById('refresh-countdown').textContent = refreshCountdown;
+    
+    // When we reach 0, reset the countdown (the actual refresh is handled by autoRefreshInterval)
+    if (refreshCountdown <= 0) {
+      refreshCountdown = DEFAULT_REFRESH_INTERVAL / 1000;
+    }
+  }, 1000);
+}
+
+// Modify toggleAutoRefresh to save preferences when changed
+function toggleAutoRefresh() {
+  autoRefreshEnabled = !autoRefreshEnabled;
+  
+  // Update button text
+  const autoRefreshBtn = document.getElementById('auto-refresh-btn');
+  const statusAlert = document.getElementById('auto-refresh-status');
+  
+  if (autoRefreshEnabled) {
+    // Start auto-refresh
+    autoRefreshBtn.innerHTML = '⏸️ Pause Auto-Refresh';
+    autoRefreshBtn.classList.remove('btn-success');
+    autoRefreshBtn.classList.add('btn-warning');
+    
+    // Start the countdown display
+    updateRefreshCountdown();
+    
+    // Set interval to refresh data
+    autoRefreshInterval = setInterval(() => {
+      loadDashboard();
+      // Reset the countdown after each refresh
+      updateRefreshCountdown();
+    }, DEFAULT_REFRESH_INTERVAL);
+    
+    showToast('Auto-refresh enabled - refreshing every 30 seconds', 'info');
+  } else {
+    // Stop auto-refresh
+    autoRefreshBtn.innerHTML = '▶️ Enable Auto-Refresh';
+    autoRefreshBtn.classList.remove('btn-warning');
+    autoRefreshBtn.classList.add('btn-success');
+    
+    // Hide the status alert
+    statusAlert.style.display = 'none';
+    
+    // Clear the intervals
+    if (autoRefreshInterval) {
+      clearInterval(autoRefreshInterval);
+      autoRefreshInterval = null;
+    }
+    
+    if (refreshCountdownInterval) {
+      clearInterval(refreshCountdownInterval);
+      refreshCountdownInterval = null;
+    }
+    
+    showToast('Auto-refresh disabled', 'info');
+  }
+  
+  // Save the new preferences
+  saveAutoRefreshPreferences();
+}
 
 // Format date for display
 function formatDate(dateString) {
@@ -314,6 +421,11 @@ function setupRealtimeSubscription() {
 
 // Load all dashboard data
 async function loadDashboard() {
+
+    if (isLoadingData && autoRefreshInterval) {
+    console.log('Skipping auto-refresh as data is currently loading');
+    return;
+    }
   // Prevent multiple concurrent data loads
   if (isLoadingData) {
     console.log('Already loading data, skipping this request');
@@ -1093,9 +1205,27 @@ async function markAsServing(queueId, counter) {
   }
 }
 
+function logout() {
+  // Stop auto-refresh if it's running
+  if (autoRefreshInterval) {
+    clearInterval(autoRefreshInterval);
+    autoRefreshInterval = null;
+  }
+  
+  if (refreshCountdownInterval) {
+    clearInterval(refreshCountdownInterval);
+    refreshCountdownInterval = null;
+  }
+  
+  // Existing logout code...
+  supabaseClient.auth.signOut().then(() => {
+    window.location.href = 'admin_login.html';
+  });
+}
 
 // Handle logout
 async function handleLogout() {
+    
   try {
     const { error } = await supabaseClient.auth.signOut();
     if (error) {
@@ -1113,7 +1243,16 @@ async function handleLogout() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-  // Initialize Bootstrap toast
+  
+    loadDashboard();
+    loadAutoRefreshPreferences();
+  // Set up event listeners
+
+   document.getElementById('refresh-btn').addEventListener('click', loadDashboard);
+  document.getElementById('auto-refresh-btn').addEventListener('click', toggleAutoRefresh);
+  document.getElementById('logout-btn').addEventListener('click', logout);
+
+    // Initialize Bootstrap toast
   const toastElList = document.querySelectorAll('.toast');
   toastElList.forEach(toastEl => {
     toast = new bootstrap.Toast(toastEl, {
