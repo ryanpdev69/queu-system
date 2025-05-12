@@ -203,9 +203,10 @@ function cleanupExpiredTimers() {
 
 // Add this function to your script
 function startCountdownForCalledItem(queueId, counter, queueNumber) {
-  // Clear any existing timer for this queue item
+  // Check if there's already an active timer for this queue item
   if (countdownTimers[queueId]) {
-    clearInterval(countdownTimers[queueId].interval);
+    // Don't recreate the timer if it's already running
+    return;
   }
   
   let endTime;
@@ -214,21 +215,24 @@ function startCountdownForCalledItem(queueId, counter, queueNumber) {
   const savedTimers = JSON.parse(localStorage.getItem('queueCountdownTimers') || '{}');
   
   if (savedTimers[queueId]) {
-    // Use the saved end time if it exists and is in the future
+    // Use the saved end time if it exists
     endTime = savedTimers[queueId];
     
-    // If the saved timer has already expired or is very close to expiring, create a new one
-    if (Date.now() >= endTime - 5000) { // 5-second buffer
-      endTime = Date.now() + (AUTO_CANCEL_TIME * 1000);
+    // If the saved timer has already expired or is very close to expiring
+    // (within 2 seconds), auto-cancel immediately
+    if (Date.now() >= endTime - 2000) {
+      console.log(`Timer for queue #${queueNumber} has expired, auto-canceling`);
+      autoReturnToWaiting(queueId, counter, queueNumber);
+      return;
     }
   } else {
     // Create a new end time if none exists
     endTime = Date.now() + (AUTO_CANCEL_TIME * 1000);
+    
+    // Save this timer to localStorage
+    savedTimers[queueId] = endTime;
+    localStorage.setItem('queueCountdownTimers', JSON.stringify(savedTimers));
   }
-  
-  // Save this timer to localStorage
-  savedTimers[queueId] = endTime;
-  localStorage.setItem('queueCountdownTimers', JSON.stringify(savedTimers));
   
   // Create a new interval that runs every second
   const interval = setInterval(() => {
@@ -264,6 +268,7 @@ function startCountdownForCalledItem(queueId, counter, queueNumber) {
     endTime
   };
 }
+
 
 function cleanupExpiredTimers() {
   const now = Date.now();
@@ -357,6 +362,7 @@ function clearAllCountdownTimers() {
 
 function initializeTimersFromStorage() {
   const savedTimers = JSON.parse(localStorage.getItem('queueCountdownTimers') || '{}');
+  const now = Date.now();
   
   // Get all active called items
   supabaseClient
@@ -375,10 +381,13 @@ function initializeTimersFromStorage() {
         return;
       }
       
-      // Re-initialize timers for all active called items
+      // Keep track of which active queue items already have timers running
+      const activeQueueIds = new Set(Object.keys(countdownTimers));
+      
+      // Only initialize timers for queue items that don't already have a running timer
       data.forEach(queueItem => {
-        // Use saved endTime if available, otherwise create new
-        if (queueItem.counter) {
+        if (queueItem.counter && !activeQueueIds.has(queueItem.id)) {
+          // Only start a new countdown if we don't already have one for this queue item
           startCountdownForCalledItem(queueItem.id, queueItem.counter, queueItem.queue_number);
         }
       });
@@ -394,7 +403,6 @@ function initializeTimersFromStorage() {
       }
     });
 }
-
 function loadAutoRefreshPreferences() {
   try {
     const savedPrefs = localStorage.getItem('adminQueueDashboardPrefs');
@@ -716,6 +724,9 @@ async function loadDashboard() {
     // Ensure the now_serving record exists before proceeding
     await ensureNowServingRecord();
     await loadQueueData();
+    
+    // Don't call initializeTimersFromStorage() here during auto-refresh
+    // This prevents resetting the timers during auto-refresh
     
     // Show success message only if this was a manual refresh (not auto)
     if (!autoRefreshEnabled) {
@@ -1549,7 +1560,8 @@ async function handleLogout() {
     showToast('Error during logout', 'danger');
   }
 }
-// Update the DOMContentLoaded event
+
+
 document.addEventListener('DOMContentLoaded', async () => {
   // Initialize Bootstrap toast
   const toastElList = document.querySelectorAll('.toast');
@@ -1565,8 +1577,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('auto-refresh-btn').addEventListener('click', toggleAutoRefresh);
   document.getElementById('logout-btn').addEventListener('click', handleLogout);
   window.addEventListener('beforeunload', () => {
-    // We don't clear localStorage timers on page unload anymore
-    // Just clear the interval timers to prevent memory leaks
+    // Clear interval timers to prevent memory leaks
     Object.keys(countdownTimers).forEach(queueId => {
       clearInterval(countdownTimers[queueId].interval);
     });
@@ -1582,6 +1593,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   loadDashboard();
   
   // Initialize timers from localStorage for any active "called" items
+  // This should happen only once when the page loads
   initializeTimersFromStorage();
   
   // Load saved preferences AFTER initial data load
