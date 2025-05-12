@@ -183,6 +183,24 @@ let refreshCountdownInterval = null;
 let countdownTimers = {}; // Store all active countdown timers by queue ID
 const AUTO_CANCEL_TIME = 5 * 60; // 5 minutes in seconds
 
+function cleanupExpiredTimers() {
+  const now = Date.now();
+  const savedTimers = JSON.parse(localStorage.getItem('queueCountdownTimers') || '{}');
+  let hasChanges = false;
+  
+  Object.keys(savedTimers).forEach(queueId => {
+    // Remove timer if it has expired
+    if (savedTimers[queueId] <= now) {
+      delete savedTimers[queueId];
+      hasChanges = true;
+    }
+  });
+  
+  if (hasChanges) {
+    localStorage.setItem('queueCountdownTimers', JSON.stringify(savedTimers));
+  }
+}
+
 // Add this function to your script
 function startCountdownForCalledItem(queueId, counter, queueNumber) {
   // Clear any existing timer for this queue item
@@ -190,8 +208,27 @@ function startCountdownForCalledItem(queueId, counter, queueNumber) {
     clearInterval(countdownTimers[queueId].interval);
   }
   
-  const startTime = Date.now();
-  const endTime = startTime + (AUTO_CANCEL_TIME * 1000);
+  let endTime;
+  
+  // Try to get the saved end time from localStorage
+  const savedTimers = JSON.parse(localStorage.getItem('queueCountdownTimers') || '{}');
+  
+  if (savedTimers[queueId]) {
+    // Use the saved end time if it exists and is in the future
+    endTime = savedTimers[queueId];
+    
+    // If the saved timer has already expired or is very close to expiring, create a new one
+    if (Date.now() >= endTime - 5000) { // 5-second buffer
+      endTime = Date.now() + (AUTO_CANCEL_TIME * 1000);
+    }
+  } else {
+    // Create a new end time if none exists
+    endTime = Date.now() + (AUTO_CANCEL_TIME * 1000);
+  }
+  
+  // Save this timer to localStorage
+  savedTimers[queueId] = endTime;
+  localStorage.setItem('queueCountdownTimers', JSON.stringify(savedTimers));
   
   // Create a new interval that runs every second
   const interval = setInterval(() => {
@@ -202,6 +239,12 @@ function startCountdownForCalledItem(queueId, counter, queueNumber) {
       // Time's up - auto-cancel
       clearInterval(interval);
       delete countdownTimers[queueId];
+      
+      // Remove from localStorage
+      const updatedTimers = JSON.parse(localStorage.getItem('queueCountdownTimers') || '{}');
+      delete updatedTimers[queueId];
+      localStorage.setItem('queueCountdownTimers', JSON.stringify(updatedTimers));
+      
       autoReturnToWaiting(queueId, counter, queueNumber);
       return;
     }
@@ -222,10 +265,33 @@ function startCountdownForCalledItem(queueId, counter, queueNumber) {
   };
 }
 
+function cleanupExpiredTimers() {
+  const now = Date.now();
+  const savedTimers = JSON.parse(localStorage.getItem('queueCountdownTimers') || '{}');
+  let hasChanges = false;
+  
+  Object.keys(savedTimers).forEach(queueId => {
+    // Remove timer if it has expired
+    if (savedTimers[queueId] <= now) {
+      delete savedTimers[queueId];
+      hasChanges = true;
+    }
+  });
+  
+  if (hasChanges) {
+    localStorage.setItem('queueCountdownTimers', JSON.stringify(savedTimers));
+  }
+}
+
 // Function to auto-return the customer to waiting queue
 async function autoReturnToWaiting(queueId, counter, queueNumber) {
   try {
     console.log(`Auto-returning queue #${queueNumber} to waiting status after timeout`);
+    
+    // Remove from localStorage
+    const savedTimers = JSON.parse(localStorage.getItem('queueCountdownTimers') || '{}');
+    delete savedTimers[queueId];
+    localStorage.setItem('queueCountdownTimers', JSON.stringify(savedTimers));
     
     // First check if the queue item is still in 'called' status
     const { data, error: checkError } = await supabaseClient
@@ -279,13 +345,54 @@ async function autoReturnToWaiting(queueId, counter, queueNumber) {
     console.error('Error in auto-return process:', error);
   }
 }
-
 // Function to clear all timers (add this)
 function clearAllCountdownTimers() {
   Object.keys(countdownTimers).forEach(queueId => {
     clearInterval(countdownTimers[queueId].interval);
   });
   countdownTimers = {};
+  
+  // We don't clear localStorage timers here - they should persist between page loads
+}
+
+function initializeTimersFromStorage() {
+  const savedTimers = JSON.parse(localStorage.getItem('queueCountdownTimers') || '{}');
+  
+  // Get all active called items
+  supabaseClient
+    .from('queues')
+    .select('id, queue_number, counter')
+    .eq('status', 'called')
+    .then(({ data, error }) => {
+      if (error) {
+        console.error('Error fetching called queue items:', error);
+        return;
+      }
+      
+      if (!data || data.length === 0) {
+        // No active called items, clean up all saved timers
+        localStorage.setItem('queueCountdownTimers', '{}');
+        return;
+      }
+      
+      // Re-initialize timers for all active called items
+      data.forEach(queueItem => {
+        // Use saved endTime if available, otherwise create new
+        if (queueItem.counter) {
+          startCountdownForCalledItem(queueItem.id, queueItem.counter, queueItem.queue_number);
+        }
+      });
+      
+      // Clean up any timer in localStorage that doesn't correspond to an active item
+      const activeIds = new Set(data.map(item => item.id));
+      const savedIds = Object.keys(savedTimers);
+      
+      const toRemove = savedIds.filter(id => !activeIds.has(id));
+      if (toRemove.length > 0) {
+        toRemove.forEach(id => delete savedTimers[id]);
+        localStorage.setItem('queueCountdownTimers', JSON.stringify(savedTimers));
+      }
+    });
 }
 
 function loadAutoRefreshPreferences() {
@@ -822,7 +929,7 @@ async function loadCounterControls() {
         <div class="alert alert-warning">
          <div class="d-flex justify-content-between align-items-center">
         <span>Auto-cancel in: <strong id="countdown-${activeQueue.id}">5:00</strong></span>
-        <button class="btn btn-sm btn-primary" onclick="markAsServing('${activeQueue.id}', ${counter})">Start Serving</button>
+        
       </div>
         </div>
      <p class="text-muted mt-2 mb-0">Customer is called but not yet serving</p>
@@ -1202,11 +1309,16 @@ async function callToCounter(queueId, counter) {
 
 // Fix 5: Improve markStatus for better error handling and null values
 async function markStatus(queueId, status, counter, reloadData = true) {
-  // Prevent concurrent operations if this is a direct user action
-    if (countdownTimers[queueId]) {
+  // Clear any active countdown timer
+  if (countdownTimers[queueId]) {
     clearInterval(countdownTimers[queueId].interval);
     delete countdownTimers[queueId];
-    }
+    
+    // Remove from localStorage
+    const savedTimers = JSON.parse(localStorage.getItem('queueCountdownTimers') || '{}');
+    delete savedTimers[queueId];
+    localStorage.setItem('queueCountdownTimers', JSON.stringify(savedTimers));
+  }
 
   if (reloadData && isLoadingData) {
     showToast('Please wait, system is processing...', 'warning');
@@ -1361,9 +1473,14 @@ async function markAsServing(queueId, counter) {
       return;
     }
 
+    // Clear the timer and remove from localStorage
     if (countdownTimers[queueId]) {
-    clearInterval(countdownTimers[queueId].interval);
-     delete countdownTimers[queueId];
+      clearInterval(countdownTimers[queueId].interval);
+      delete countdownTimers[queueId];
+      
+      const savedTimers = JSON.parse(localStorage.getItem('queueCountdownTimers') || '{}');
+      delete savedTimers[queueId];
+      localStorage.setItem('queueCountdownTimers', JSON.stringify(savedTimers));
     }
     
     if (queue.status !== 'called') {
@@ -1432,7 +1549,7 @@ async function handleLogout() {
     showToast('Error during logout', 'danger');
   }
 }
-
+// Update the DOMContentLoaded event
 document.addEventListener('DOMContentLoaded', async () => {
   // Initialize Bootstrap toast
   const toastElList = document.querySelectorAll('.toast');
@@ -1447,18 +1564,29 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('refresh-btn').addEventListener('click', loadDashboard);
   document.getElementById('auto-refresh-btn').addEventListener('click', toggleAutoRefresh);
   document.getElementById('logout-btn').addEventListener('click', handleLogout);
-  window.addEventListener('beforeunload', clearAllCountdownTimers)
+  window.addEventListener('beforeunload', () => {
+    // We don't clear localStorage timers on page unload anymore
+    // Just clear the interval timers to prevent memory leaks
+    Object.keys(countdownTimers).forEach(queueId => {
+      clearInterval(countdownTimers[queueId].interval);
+    });
+  });
 
-// Ensure now_serving record exists first
+  // Clean up any expired timers in localStorage
+  cleanupExpiredTimers();
+
+  // Ensure now_serving record exists first
   await ensureNowServingRecord();
   
   // Load initial data
   loadDashboard();
   
+  // Initialize timers from localStorage for any active "called" items
+  initializeTimersFromStorage();
+  
   // Load saved preferences AFTER initial data load
   loadAutoRefreshPreferences();
 });
-
 </script>
 </body>
 </html>
