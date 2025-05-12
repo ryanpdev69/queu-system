@@ -237,7 +237,7 @@
       <div class="progress">
         <div id="timerProgress" class="progress-bar timer-progress" role="progressbar" style="width: 100%"></div>
       </div>
-      <p class="text-end mt-1"><span id="timerSeconds">300</span> seconds</p>
+      <p class="text-end mt-1"><span id="timerSeconds">305</span> seconds</p>
     </div>
     <div class="d-grid gap-2">
       <button id="acceptBtn" class="btn btn-success">Accept & Proceed</button>
@@ -266,7 +266,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let userProfile = null;
   let realtime = null;
   let timerInterval = null;
-  let secondsLeft = 300; // 5 minutes
+  let secondsLeft = 305; // 5 minutes
   let currentlyCalledQueueId = null;
   let refreshInterval = null;
   let lastNowServing = null;
@@ -803,7 +803,7 @@ window.hideNotificationFn = hideNotificationFn;
   if (!timerData || timerData.endTime <= now) {
     timerData = {
       startTime: now,
-      endTime: now + (300 * 1000), // 5 minutes in milliseconds
+      endTime: now + (305 * 1000), // 5 minutes in milliseconds
       queueId: queueId
     };
     localStorage.setItem(timerKey, JSON.stringify(timerData));
@@ -832,7 +832,7 @@ console.log(`Set currentlyCalledQueueId to ${queueId}`);
   
   // Update display
   timerSecondsEl.textContent = secondsLeft;
-  timerProgressEl.style.width = `${(secondsLeft / 300) * 100}%`;
+  timerProgressEl.style.width = `${(secondsLeft / 305) * 100}%`;
   
   // Set appropriate progress bar color
   if (secondsLeft <= 60) {
@@ -856,7 +856,7 @@ console.log(`Set currentlyCalledQueueId to ${queueId}`);
       
       // Update display
       timerSecondsEl.textContent = secondsLeft;
-      const percentage = (secondsLeft / 300) * 100;
+      const percentage = (secondsLeft / 305) * 100;
       timerProgressEl.style.width = `${percentage}%`;
       
       // Update localStorage with current time
@@ -1002,7 +1002,7 @@ function showCalledNotificationFn(queueNumber, counter, queueId) {
   if (!timerData || timerData.endTime <= now) {
     timerData = {
       startTime: now,
-      endTime: now + (300 * 1000), // 5 minutes in milliseconds
+      endTime: now + (305 * 1000), // 5 minutes in milliseconds
       queueId: queueId
     };
     localStorage.setItem(timerKey, JSON.stringify(timerData));
@@ -1031,7 +1031,7 @@ function showCalledNotificationFn(queueNumber, counter, queueId) {
   
   // Update display
   timerSecondsEl.textContent = secondsLeft;
-  timerProgressEl.style.width = `${(secondsLeft / 300) * 100}%`;
+  timerProgressEl.style.width = `${(secondsLeft / 305) * 100}%`;
   
   // Set appropriate progress bar color
   if (secondsLeft <= 60) {
