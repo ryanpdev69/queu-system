@@ -180,6 +180,113 @@ let autoRefreshInterval = null;
 const DEFAULT_REFRESH_INTERVAL = 10000;
 let refreshCountdown = DEFAULT_REFRESH_INTERVAL / 1000; // Convert from ms to seconds
 let refreshCountdownInterval = null;
+let countdownTimers = {}; // Store all active countdown timers by queue ID
+const AUTO_CANCEL_TIME = 5 * 60; // 5 minutes in seconds
+
+// Add this function to your script
+function startCountdownForCalledItem(queueId, counter, queueNumber) {
+  // Clear any existing timer for this queue item
+  if (countdownTimers[queueId]) {
+    clearInterval(countdownTimers[queueId].interval);
+  }
+  
+  const startTime = Date.now();
+  const endTime = startTime + (AUTO_CANCEL_TIME * 1000);
+  
+  // Create a new interval that runs every second
+  const interval = setInterval(() => {
+    const now = Date.now();
+    const remainingMs = endTime - now;
+    
+    if (remainingMs <= 0) {
+      // Time's up - auto-cancel
+      clearInterval(interval);
+      delete countdownTimers[queueId];
+      autoReturnToWaiting(queueId, counter, queueNumber);
+      return;
+    }
+    
+    // Update countdown display if the element exists
+    const countdownEl = document.getElementById(`countdown-${queueId}`);
+    if (countdownEl) {
+      const minutes = Math.floor(remainingMs / 60000);
+      const seconds = Math.floor((remainingMs % 60000) / 1000);
+      countdownEl.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    }
+  }, 1000);
+  
+  // Store the timer information
+  countdownTimers[queueId] = {
+    interval,
+    endTime
+  };
+}
+
+// Function to auto-return the customer to waiting queue
+async function autoReturnToWaiting(queueId, counter, queueNumber) {
+  try {
+    console.log(`Auto-returning queue #${queueNumber} to waiting status after timeout`);
+    
+    // First check if the queue item is still in 'called' status
+    const { data, error: checkError } = await supabaseClient
+      .from('queues')
+      .select('status')
+      .eq('id', queueId)
+      .single();
+      
+    if (checkError) {
+      console.error('Error checking queue status:', checkError);
+      return;
+    }
+    
+    // Only proceed if the status is still 'called' (not 'serving' or already changed)
+    if (data.status !== 'called') {
+      console.log(`Queue #${queueNumber} is no longer in called status, skipping auto-return`);
+      return;
+    }
+    
+    // Reset to waiting status
+    const { error: updateError } = await supabaseClient
+      .from('queues')
+      .update({
+        status: 'waiting',
+        counter: null
+      })
+      .eq('id', queueId);
+      
+    if (updateError) {
+      console.error('Error auto-returning queue to waiting:', updateError);
+      return;
+    }
+    
+    // Clear the counter in now_serving table
+    const counterField = `counter_${counter}`;
+    const { error: nowServingError } = await supabaseClient
+      .from('now_serving')
+      .update({ [counterField]: null })
+      .eq('id', 1);
+      
+    if (nowServingError) {
+      console.error('Error updating now serving display:', nowServingError);
+      return;
+    }
+    
+    showToast(`Customer #${queueNumber} was automatically returned to waiting queue (no show)`, 'warning');
+    
+    // Force refresh the UI
+    loadQueueData();
+  } catch (error) {
+    console.error('Error in auto-return process:', error);
+  }
+}
+
+// Function to clear all timers (add this)
+function clearAllCountdownTimers() {
+  Object.keys(countdownTimers).forEach(queueId => {
+    clearInterval(countdownTimers[queueId].interval);
+  });
+  countdownTimers = {};
+}
 
 function loadAutoRefreshPreferences() {
   try {
@@ -703,18 +810,26 @@ async function loadCounterControls() {
 
         // Enable/disable buttons based on serving status
         let buttonsHtml;
+
         if (isServing) {
           // If serving, show complete and cancel buttons
           buttonsHtml = `
-            <button class="btn btn-success" onclick="markStatus('${activeQueue.id}', 'completed', ${counter})">✅ Complete</button>
-           
-          `;
+         <button class="btn btn-success" onclick="markStatus('${activeQueue.id}', 'completed', ${counter})">✅ Complete</button>
+         `;
         } else {
-          // If called but not yet serving, show mark as serving button
-          buttonsHtml = `
-            
-            <p class="text-muted mt-2 mb-0">Customer is called but not yet serving</p>
-          `;
+          // For called but not serving, add countdown and start serving button
+        buttonsHtml = `
+        <div class="alert alert-warning">
+         <div class="d-flex justify-content-between align-items-center">
+        <span>Auto-cancel in: <strong id="countdown-${activeQueue.id}">5:00</strong></span>
+        <button class="btn btn-sm btn-primary" onclick="markAsServing('${activeQueue.id}', ${counter})">Start Serving</button>
+      </div>
+        </div>
+     <p class="text-muted mt-2 mb-0">Customer is called but not yet serving</p>
+     `;
+  
+    // Start the countdown timer for this item
+    startCountdownForCalledItem(activeQueue.id, counter, activeQueue.queue_number);
         }
 
         cardBody = `
@@ -950,6 +1065,8 @@ async function callNext(counter) {
       console.error('Error updating queue status:', updateError);
       throw updateError;
     }
+
+    startCountdownForCalledItem(next.id, counter, next.queue_number);
     
     // Update the now_serving table with the queue number
     const counterField = `counter_${counter}`;
@@ -1067,6 +1184,8 @@ async function callToCounter(queueId, counter) {
       throw nowServingUpdateError;
     }
 
+    startCountdownForCalledItem(queueId, counter, queueDetails.queue_number);
+
     // Final: Notify and reload data
     showToast(`Customer #${queueDetails.queue_number} called to counter ${counter}`, 'success');
     await loadQueueData();
@@ -1084,6 +1203,11 @@ async function callToCounter(queueId, counter) {
 // Fix 5: Improve markStatus for better error handling and null values
 async function markStatus(queueId, status, counter, reloadData = true) {
   // Prevent concurrent operations if this is a direct user action
+    if (countdownTimers[queueId]) {
+    clearInterval(countdownTimers[queueId].interval);
+    delete countdownTimers[queueId];
+    }
+
   if (reloadData && isLoadingData) {
     showToast('Please wait, system is processing...', 'warning');
     return;
@@ -1236,6 +1360,11 @@ async function markAsServing(queueId, counter) {
       isLoadingData = false;
       return;
     }
+
+    if (countdownTimers[queueId]) {
+    clearInterval(countdownTimers[queueId].interval);
+     delete countdownTimers[queueId];
+    }
     
     if (queue.status !== 'called') {
       alert('This queue item is not in called status');
@@ -1318,6 +1447,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('refresh-btn').addEventListener('click', loadDashboard);
   document.getElementById('auto-refresh-btn').addEventListener('click', toggleAutoRefresh);
   document.getElementById('logout-btn').addEventListener('click', handleLogout);
+  window.addEventListener('beforeunload', clearAllCountdownTimers)
 
 // Ensure now_serving record exists first
   await ensureNowServingRecord();
