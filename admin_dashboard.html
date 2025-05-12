@@ -22,7 +22,7 @@
       <span class="visually-hidden">Auto-refreshing...</span>
     </div>
     <div>
-      <strong>Auto-refresh enabled</strong> - Dashboard updates every 30 seconds. Next update in <span id="refresh-countdown">30</span> seconds.
+      <strong>Auto-refresh enabled</strong> - Dashboard updates every 10 seconds. Next update in <span id="refresh-countdown">30</span> seconds.
     </div>
   </div>
 </div>
@@ -177,7 +177,7 @@ let isLoadingData = false; // Flag to prevent multiple concurrent data loads
 let toast; // Reference to Bootstrap toast
 let autoRefreshEnabled = false;
 let autoRefreshInterval = null;
-const DEFAULT_REFRESH_INTERVAL = 30000;
+const DEFAULT_REFRESH_INTERVAL = 10000;
 let refreshCountdown = DEFAULT_REFRESH_INTERVAL / 1000; // Convert from ms to seconds
 let refreshCountdownInterval = null;
 
@@ -274,6 +274,19 @@ function toggleAutoRefresh() {
     autoRefreshBtn.classList.remove('btn-success');
     autoRefreshBtn.classList.add('btn-warning');
     
+    // Update the status alert HTML with the new interval
+    statusAlert.innerHTML = `
+      <div class="d-flex align-items-center">
+        <div class="spinner-border spinner-border-sm me-2" role="status">
+          <span class="visually-hidden">Auto-refreshing...</span>
+        </div>
+        <div>
+          <strong>Auto-refresh enabled</strong> - Dashboard updates every 10 seconds. Next update in <span id="refresh-countdown">10</span> seconds.
+        </div>
+      </div>
+    `;
+    statusAlert.style.display = 'block';
+    
     // Start the countdown display
     updateRefreshCountdown();
     
@@ -284,7 +297,7 @@ function toggleAutoRefresh() {
       updateRefreshCountdown();
     }, DEFAULT_REFRESH_INTERVAL);
     
-    showToast('Auto-refresh enabled - refreshing every 30 seconds', 'info');
+    showToast('Auto-refresh enabled - refreshing every 10 seconds', 'info');
   } else {
     // Stop auto-refresh
     autoRefreshBtn.innerHTML = '▶️ Enable Auto-Refresh';
